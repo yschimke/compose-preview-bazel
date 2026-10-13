@@ -1,0 +1,47 @@
+name: PR Title
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to check on its head branch
+        required: true
+        type: number
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  title:
+    name: Conventional Commit title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            perf
+            test
+            build
+            ci
+            style
+            revert
+      - name: Check dispatched PR
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(gh pr view "$PR" --json headRefOid --jq .headRefOid)" = "$HEAD_SHA"
+          title="$(gh pr view "$PR" --json title --jq .title)"
+          [[ "$title" =~ ^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\([^\)]+\))?!?:\ [^[:space:]] ]]
