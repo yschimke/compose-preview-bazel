@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: yschimke/compose-ai-tools
-          ref: 628305a10600dfbcea9570c11152953058264063
+          ref: 72ac1b587bf06312a4bd85147fac4511da8a0d04
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup

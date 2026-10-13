@@ -19,10 +19,10 @@ import tempfile
 import zipfile
 
 
-def invoke(argv, cwd, log, capture=False):
+def invoke(argv, cwd, log, capture=False, env=None):
     with log.open("w") as stderr:
         result = subprocess.run(argv, cwd=cwd, text=True, stdout=subprocess.PIPE,
-                                stderr=stderr, timeout=600)
+                                stderr=stderr, timeout=600, env=env)
     log.with_suffix(".stdout").write_text(result.stdout)
     if result.returncode:
         raise RuntimeError(f"Command failed ({result.returncode}): {argv}\n{log.read_text()[-8000:]}")
@@ -171,6 +171,30 @@ def check(args):
             invoke(bazel + ["build", "//:ui-preview", "--output_groups=bundle", "--jobs=4", "--execution_log_json_file=" + str(evidence / "cached-actions.json")], consumer, evidence / "cached-bundle.log")
             assert "ComposePreviewPrepare" not in (evidence / "cached-actions.json").read_text(), "Unchanged preparation must be cached"
             assert hashlib.sha256(bundle.read_bytes()).hexdigest() == before
+            # Re-run the standalone producer against byte-identical inputs under distinct roots
+            # and JVM locales/timezones. This is a fresh execution, not a Bazel cache observation.
+            execution_root = Path(invoke(bazel + ["info", "execution_root"], consumer, evidence / "execution-root.log").strip())
+            metadata = json.loads((consumer / "bazel-bin/ui-preview.artifacts.json").read_text())
+            produced = []
+            for index, (timezone, language) in enumerate((("Pacific/Honolulu", "en"), ("Pacific/Kiritimati", "fr"))):
+                relocated = temporary / f"relocated-{index}"
+                relocated.mkdir()
+                paths = set(path for field in ("projectJars", "runtimeJars", "sourceFiles", "dataFiles") for path in metadata.get(field, []))
+                for path in paths:
+                    assert not Path(path).is_absolute() and ".." not in Path(path).parts
+                    destination = relocated / path
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(execution_root / path, destination)
+                (relocated / "artifacts.json").write_text(json.dumps(metadata))
+                shutil.copyfile(consumer / "maven_install.json", relocated / "maven_install.json")
+                output = relocated / "bundle.png"
+                environment = dict(os.environ)
+                environment["JAVA_OPTS"] = f"-Duser.timezone={timezone} -Duser.language={language} -Dfile.encoding=US-ASCII"
+                invoke([str(args.producer_dist.resolve() / "bin/compose-preview-producer"), "--artifacts", "artifacts.json",
+                        "--maven-install", "maven_install.json", "--output", str(output)], relocated,
+                       evidence / f"reproducibility-{index}.log", env=environment)
+                produced.append(hashlib.sha256(output.read_bytes()).hexdigest())
+            assert produced == [before, before], "Prepared artifacts must reproduce across checkouts/locales/timezones"
             # Invalidate a runtime-only resource. Preparation must rerun even when preview source is unchanged.
             resource = consumer / "app/runtime/runtime-message.txt"
             if not resource.is_file():
@@ -198,7 +222,7 @@ def check(args):
             forbidden = ("daemon-client-", "daemon-core-", "daemon-bta-", "kotlin-build-tools-api-", "skiko-", "ktor-")
             assert not any(jar.name.startswith(forbidden) for jar in (args.producer_dist / "lib").glob("*.jar"))
             evidence.joinpath("summary.json").write_text(json.dumps({"cliFirst": "passed", "bazelRun": "passed",
-                                                                    "bazelBuild": "passed", "externalArchives": "passed", "sourceOnly": "passed", "preparationCache": "passed",
+                                                                    "bazelBuild": "passed", "externalArchives": "passed", "sourceOnly": "passed", "preparationCache": "passed", "reproduciblePreparation": "passed",
                                                                     "pngSha256": png(normal_png)}, indent=2) + "\n")
             print("CLI-first, Bazel run/build, external rules/CLI archives and outside-cwd rendering passed.")
         finally:

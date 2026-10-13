@@ -184,6 +184,14 @@ python3 tests/integration.py \
   --producer-dist /path/to/tools/bundle/producer/build/install/compose-preview-producer
 ```
 
+Prepared bundles use sorted archive entries, fixed timezone-independent ZIP timestamps,
+UTF-8/canonical JSON and portable source paths. Classpath order is preserved.
+The same declared compiled inputs and pinned producer/JDK reproduce byte-identical
+bundles across workspace locations/locales/timezones; the test executes the producer
+afresh in two relocated roots and compares full SHA-256s. Baking is reproducible
+for identical PNG inputs. Rendering still needs a declared native/font toolchain
+before image reproducibility across hosts can be guaranteed.
+
 The external-consumer test packages rules and both tools, imports pinned archives
 into a fresh workspace, compares CLI/native PNGs, renders outside the workspace,
 checks the bundle-only action graph, verifies a cache hit, changes a runtime
