@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: yschimke/compose-ai-tools
-          ref: ca2e7bbd92ffad8391fb38ad1ef76a183e62411b
+          ref: 628305a10600dfbcea9570c11152953058264063
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
@@ -55,9 +55,9 @@ jobs:
           repository-cache: true
       - name: Build the current CLI adapter
         working-directory: tools
-        run: ./gradlew :cli:installDist --stacktrace
+        run: ./gradlew :bundle-producer:check :bundle-producer:installDist :cli:installDist --stacktrace
       - name: Compare CLI-first and native-first renders through external archives
-        run: python3 tests/integration.py --fixture contrib/bazel-desktop --cli-dist tools/cli/build/install/compose-preview
+        run: python3 tests/integration.py --fixture contrib/bazel-desktop --cli-dist tools/cli/build/install/compose-preview --producer-dist tools/bundle/producer/build/install/compose-preview-producer
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

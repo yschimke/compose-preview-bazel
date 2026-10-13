@@ -1,117 +1,154 @@
 # Compose Preview for Bazel
 
-Reusable Bazel build/run rules for Compose UI previews, sharing the
-[`compose-preview` CLI](https://github.com/yschimke/compose-ai-tools) artifact
-contract. The Bzlmod module is `rules_compose_preview`.
-
-Status: experimental Desktop JVM PNG support, tested with Bazel 9.2,
-Kotlin/rules_kotlin 2.4.20 and CMP 1.11.1. Blaze uses the same provider/configuration
-seam but needs internal validation. Android resource rendering, native CMP,
-watch mode and additional export formats are not implemented here yet.
+`rules_compose_preview` shares Compose discovery and the runnable PNG/ZIP bundle
+format with [compose-ai-tools](https://github.com/yschimke/compose-ai-tools).
+Experimental Desktop JVM support is tested with Bazel 9.2, Kotlin 2.4.20 and
+Compose Multiplatform 1.11.1. Blaze needs internal validation. Android resources,
+native CMP and additional exports remain future work.
 
 ## CLI first
 
-Normal CLI commands prefer Gradle settings/wrapper within the workspace and fall
-back to Bazel/Blaze workspace/BUILD indicators:
+Normal CLI commands prefer Gradle settings/wrapper, then fall back to Bazel/Blaze
+workspace/BUILD indicators:
 
 ```sh
 compose-preview list
 compose-preview render --filter Greeting --output greeting.png
+compose-preview bazel bundle --target //app:ui --no-render --output runnable.png \
+  --maven-install maven_install.json
 ```
 
-The CLI attaches an aspect to the existing application target; no application BUILD
-edit is required. For ambiguous packages commit `.compose-preview/bazel.json`:
+The CLI attaches an aspect to the existing application target without editing its
+BUILD file. For ambiguous packages commit `.compose-preview/bazel.json` with
+`{"schemaVersion":1,"target":"//app:ui"}`. When these rules are installed, set
+`aspect` to `@rules_compose_preview//:runtime.bzl%compose_preview_aspect`.
+Custom aspects/providers and Blaze command wrappers use the same
+[configuration contract](https://github.com/yschimke/compose-ai-tools/blob/main/docs/BAZEL.md).
 
-```json
-{"schemaVersion": 1, "target": "//app:ui"}
+## Source-bundle-only monorepos
+
+Omit `cli` and declare only the small producer tool:
+
+```starlark
+compose_preview(
+    name = "ui-source-bundle",
+    module = ":ui",
+    producer = "@compose_preview_producer//:producer",
+    srcs = glob(["src/**/*.kt"]),
+    maven_install = ":maven_install.json",
+)
 ```
 
-When this rules module is installed, configure the aspect as
-`@rules_compose_preview//:runtime.bzl%compose_preview_aspect` to reuse it rather
-than inject a second tool package. Provider imports/custom aspects and approved
-Blaze wrappers can be selected through
-[CLI configuration](https://github.com/yschimke/compose-ai-tools/blob/agent/bazel-output-groups/docs/BAZEL.md).
+This target performs annotation discovery, compiled-artifact scanning and ZIP
+packaging. It needs neither the full compose-ai-tools CLI nor a daemon/renderer
+distribution. Consumers can download the independent producer binary or resolve
+its published Maven dependencies; they do not need a checkout of compose-ai-tools
+or a nested Gradle build. No Compose runtime is loaded to discover previews.
+The runnable bundle records application runtime Maven coordinates for a separate
+server or CLI to resolve later. Here “source bundle” means an **unrendered runnable
+bundle containing compiled project bytecode/resources**, rather than a Kotlin-source
+archive. It does not compile Kotlin on the consuming server.
+
+`compose_preview_producer` also accepts `deps = [":producer_core"]` with JavaInfo:
+use a small producer compiled from source, or a Maven-resolved `bundle-producer`
+target, and the tool includes its transitive runtime JARs. `java_runtime` can select
+the monorepo's existing declared Java 17+ target; it defaults to rules_java's pinned
+remote JDK 17. The producer artifact must be released before resolving it from
+Maven Central; the independent distribution is available from a source build now.
+
+The producer uses JVM discovery (ClassGraph, ASM, Kotlin metadata), Kotlin
+serialization, bundle format/IO and shared preview DTO/device contracts. Some
+contract artifact names retain `daemon-*`, but executable daemon client/core/BTA,
+renderer, native Compose/Skiko, HTTP stacks and the full CLI are excluded and a
+build check guards that boundary. CLI support is an optional attribute; requesting
+PNG defaults without it fails clearly. `bazel run` on a source-only target prints
+the prepared bundle path.
 
 ## Bazel first
-
-Install the module and provide a declared executable CLI target, then in `app/BUILD.bazel`:
 
 ```starlark
 load("@rules_compose_preview//:defs.bzl", "compose_preview")
 
 compose_preview(
     name = "ui-preview",
-    module = ":ui",  # existing JavaInfo-producing Compose JVM library
+    module = ":ui",  # existing JavaInfo-producing JVM library
+    producer = "@compose_preview_producer//:producer",
     cli = "@compose_preview_cli//:cli",
-    srcs = glob(["src/**/*.kt"]),  # optional own/generated Kotlin or Java sources
-    outputs = ["png", "bundle"],
+    srcs = glob(["src/**/*.kt"]),  # optional own and generated sources
     maven_install = ":maven_install.json",
+    outputs = ["bundle"],  # default; png and rendered_bundle are optional
 )
 ```
 
 ```sh
-bazel run //app:ui-preview -- --filter Greeting --output greeting.png
 bazel build //app:ui-preview
-bazel build //app:ui-preview --output_groups=bundle
+bazel run //app:ui-preview -- render --filter Greeting --output greeting.png --json
+bazel run //app:ui-preview -- inspect
+bazel build //app:ui-preview --output_groups=png
+bazel build //app:ui-preview --output_groups=rendered_bundle
 ```
 
-`run` builds the configured outputs once, copies captures into a writable local
-workspace and reuses them through the CLI. It does not start a second renderer.
-It accepts normal Bazel-adapter selection/output flags after `--`. Default run
-outputs go to `.compose-preview/outputs/ui-preview` in the workspace; override
-with `COMPOSE_PREVIEW_OUT` or `--out`. It works from another directory too.
+One target exposes three products:
 
-`build` renders all application-owned previews into the declared tree artifact
-`bazel-bin/app/ui-preview/build/compose-previews/`. The existing manifest, captures,
-PNG paths and state files are included; `--output_groups=png` selects that
-tree. `filter` on the rule narrows build-time selection. Dependency-owned previews
-are excluded, but runtime-only classes/resources remain available. Neither form
-starts a nested build.
+| Group | Product | Execution |
+| --- | --- | --- |
+| `bundle` | `ui-preview.bundle.png`, runnable PNG/ZIP with a one-pixel stub cover | Offline preparation with normal Bazel caching |
+| `png` | `ui-preview.renders/`, `<preview-id>.png` files | Existing CLI bundle renderer, local and uncached |
+| `rendered_bundle` | `ui-preview.rendered-bundle.png`, actual cover and baked previews | Local render followed by cacheable offline packaging |
 
-**Rendering currently requires a local Unix host and Java 17+.** Build actions are
-marked local, uncached and non-remote because the CLI still provisions renderer,
-Skiko/native libraries and fonts through the host. They are not hermetic remote
-render actions. `--action_env=JAVA_HOME --action_env=XDG_CACHE_HOME` can select an
-already-provisioned runtime/cache; `env` on the rule declares additional local
-settings. Do not pass credential-bearing environment variables into build actions.
-Plain files in arbitrary runfiles trees do not establish JNI/data layout support;
-JVM resources packaged in jars are tested.
+Bundle-only builds and the default `run` prerequisites do not render. Preparation
+uses declared compiled project/runtime JARs, sources, Maven lockfile, producer
+JARs and a Bazel Java runtime toolchain. It does not download Maven dependencies,
+provision renderer sidecars, or inherit host render settings. Unchanged inputs
+reuse the action cache; changed runtime resources invalidate it. `filter` on the
+rule changes the preparation action key. Runtime selection after `bazel run`
+affects only the CLI render, which can render different selections from the same
+prepared bundle. No sibling targets or nested Bazel builds are generated.
 
-## Install and pin in another repository
+`run` defaults to rendering (the `render` word is optional) and also supports
+`inspect` and `extract`. Render outputs default to
+`.compose-preview/outputs/ui-preview`, overrideable with `COMPOSE_PREVIEW_OUT`
+or `--output`. A PNG file output requires one selected preview. Rendering uses the
+existing CLI bundle path, so Maven dependencies resolve from local caches or
+Central/Google Maven. Rendering requires a local Unix host and Java 17+.
 
-No Bazel Central Registry entry is claimed yet. Start with an immutable commit:
+Render actions are deliberately local, uncached and non-remote while the CLI
+provisions renderer/native libraries and uses host fonts. `env` and
+`--action_env=JAVA_HOME --action_env=XDG_CACHE_HOME` apply only to local rendering.
+Do not pass credential-bearing environment variables into actions. Preparation
+is cacheable; hermetic rendering is a separate future toolchain project.
+
+Coordinates are preferred even for transformed Bazel JARs. Recovery considers
+lockfile paths/names, Maven layout, pom.properties, manifest versions and the
+closest identifiable lockfile artifact. Published checksums describe published
+bytes. `dependency-resolution.json` records the evidence. Unknown/unpublished
+project dependencies are embedded; full resources and runtime closure are kept
+for reflection. Plain arbitrary runfiles do not establish JNI/data layout support;
+JVM resources packaged in JARs are tested.
+
+## Install and publish
+
+The rules, producer and CLI are independently pinned. There is no BCR entry yet.
+Use `git_override` at a tested immutable commit or the `v0.1.0-rc.4` source archive:
 
 ```starlark
-# MODULE.bazel
-bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.3")
+bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.4")
 git_override(
     module_name = "rules_compose_preview",
     remote = "https://github.com/yschimke/compose-preview-bazel.git",
-    commit = "<full tested commit SHA>",
+    commit = "<full tested SHA>",
 )
-```
 
-The initial PNG-only prerelease is available as a checked source archive below.
-For runnable bundles pin the current tested commit or the single-target `v0.1.0-rc.3`
-prerelease; do not use the older archive with `outputs = ["png", "bundle"]`:
-
-```starlark
-archive_override(
-    module_name = "rules_compose_preview",
-    urls = ["https://github.com/yschimke/compose-preview-bazel/archive/refs/tags/v0.1.0-rc.1.tar.gz"],
-    sha256 = "10a53c36d420a029f9272e2b6c8188c84ea89cd84bd4bae2b25c7079d09aa718",
-    strip_prefix = "compose-preview-bazel-0.1.0-rc.1",
+producer_repository = use_repo_rule(
+    "@rules_compose_preview//:repositories.bzl",
+    "compose_preview_producer_repository",
 )
-```
-
-The compact ~10 KB module archive/checksum is also a CI artifact. Initial custom
-release-asset upload was forbidden from the development environment; the tag and
-source archive are published. Subsequent releases can attach compact assets from
-the default-branch release workflow after bumping the module version.
-
-Pin the CLI distribution separately using `use_repo_rule`:
-
-```starlark
+producer_repository(
+    name = "compose_preview_producer",
+    urls = ["<immutable compose-preview-producer distribution .tar.gz URL>"],
+    sha256 = "<archive SHA-256>",
+    strip_prefix = "compose-preview-producer-<version>",
+)
 cli_repository = use_repo_rule(
     "@rules_compose_preview//:repositories.bzl",
     "compose_preview_cli_repository",
@@ -124,93 +161,33 @@ cli_repository(
 )
 ```
 
-Repository download uses Bazel's downloader at fetch time. It does not download
-rule code or CLI distributions while rendering. Renderer sidecar provisioning is
-still local, as described above.
+Until the producer is released, build compose-ai-tools with
+`scripts/agent-gradle.sh :bundle-producer:distTar :cli:distTar` and pin those
+archives. Repository rules use Bazel's downloader during fetch, never during
+preparation. For local development use `local_path_override`, and declare staged
+producer `lib/*.jar` with `compose_preview_producer` from `tool.bzl`. A staged CLI
+uses `compose_preview_cli` with its launcher and distribution files.
 
-Until a CLI release includes [tools #5950](https://github.com/yschimke/compose-ai-tools/pull/5950),
-build that branch with `scripts/agent-gradle.sh :cli:installDist :cli:distTar` and use
-the resulting archive. Existing released CLIs without the Bazel adapter cannot
-consume this module. The CLI is independently versioned; rule releases do not
-silently upgrade it.
+`python3 scripts/package.py --out build/release` produces a deterministic compact
+rules archive and checksum. CLI/producer binaries stay out of the rules archive.
+CI publishes these artifacts; tagged prereleases have GitHub source archives.
+The existing default-branch release workflow can publish compact archives. Older
+prereleases used different APIs and required rendering to prepare bundles.
 
-For local development use `local_path_override` for the module. A staged CLI can
-be declared with `compose_preview_cli` from `tool.bzl`, supplying its
-`bin/compose-preview` launcher and distribution files as runfiles.
-
-## Publishing and testing
-
-`python3 scripts/package.py --out build/release` produces a deterministic module
-archive and `.sha256` file. The archive contains only rule/provider files, module
-metadata, license and README; CLI/renderer binaries are separate. Publish those
-assets as a prerelease first. A stable BCR submission can follow after compatibility
-and API stabilization; use the same archive, checksum and strip prefix.
-
-The live external-consumer test packages both rules and CLI, creates a fresh
-workspace, uses `archive_override` and the CLI repository rule, then exercises
-normal CLI, native run/build and a launcher invoked outside the workspace:
+## Verification and project setup
 
 ```sh
+python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tests/integration.py \
   --fixture /path/to/compose-ai-contrib/bazel-desktop \
-  --cli-dist /path/to/compose-ai-tools/cli/build/install/compose-preview
+  --cli-dist /path/to/tools/cli/build/install/compose-preview \
+  --producer-dist /path/to/tools/bundle/producer/build/install/compose-preview-producer
 ```
 
-It compares PNG hashes across all entry points and checks runtime-only/generated
-previews. CI publishes logs and actual rendered images. The
-[export design](https://github.com/yschimke/compose-ai-tools/blob/agent/bazel-aspect-driver/docs/design/BAZEL_PREVIEW_TARGETS.md)
-covers future Remote Compose `.rc`, APNG, layout JSON and Android accessibility
-exports. Unsupported `outputs` fail rather than produce placeholder files.
+The external-consumer test packages rules and both tools, imports pinned archives
+into a fresh workspace, compares CLI/native PNGs, renders outside the workspace,
+checks the bundle-only action graph, verifies a cache hit, changes a runtime
+resource to verify invalidation, and checks the optional baked bundle.
 
-## Shared project setup
-
-Renovate extends `github>yschimke/renovate-config`. Common PR-title and attribution
-checks use the names in its repository policy. CI runs packaging validation and a
-separate live external Compose consumer; release publication requires successful
-default-branch CI. [Policy PR #22](https://github.com/yschimke/renovate-config/pull/22)
-registers this repository for squash-only merges, branch cleanup, Actions
-permissions and Protect Main with required `Bazel rules validation` plus common
-checks. Applying the policy requires an owner credential with Administration
-read/write; the development integration returned HTTP 403. From a checkout of
-that policy change, run `repo-policy/apply-repo-policy.sh --apply compose-preview-bazel`.
-
-## Runnable PNG/ZIP bundles
-
-Set `outputs = ["png", "bundle"]` and provide the `rules_jvm_external`
-`maven_install` lockfile.
-`bazel build //app:ui-preview --output_groups=bundle` writes `bazel-bin/app/ui-preview.bundle.png`,
-a PNG/ZIP polyglot in the compose-ai-tools runnable bundle format. Any PNG viewer
-shows its real cover; the preview server can resolve dependencies and re-render it.
-The ordinary CLI supports `compose-preview render --bundle --maven-install maven_install.json`
-and `compose-preview bazel bundle --target //app:ui --output bundle.png`.
-
-Coordinates are preferred even when Bazel transforms JAR bytes. Recovery uses
-lockfile group/version paths, artifact filenames, pom.properties and manifest
-version hints, with a closest identifiable lockfile artifact as a fallback.
-Published checksums are recorded when available; they describe the Maven artifact,
-not transformed Bazel bytes. `dependency-resolution.json` records each decision.
-Unknown/unpublished application dependencies are embedded, while Compose and other
-identified libraries resolve from Maven Central or Google Maven. Full runtime
-closure and resources are retained for reflection. `--embed-deps` explicitly opts
-into an offline bundle. The CLI and server still require their renderer sidecars.
-
-## One target, multiple products
-
-The rule declares only the target name you choose. There are no implicit `-run`
-or `-bundle` siblings. `outputs` selects the default products, and named output
-groups select products for a build:
-
-```sh
-bazel build //app:ui-preview --output_groups=png
-bazel build //app:ui-preview --output_groups=bundle
-bazel build //app:ui-preview --output_groups=png,bundle
-bazel run //app:ui-preview -- --filter Greeting --output greeting.png
-```
-
-One PNG action supplies both the bundle packaging action and the runnable target.
-The bundle action packages those captures; the launcher copies them to writable
-local storage and uses `--reuse-renders`, so neither starts a second renderer.
-Selecting only `png` omits bundle packaging. Selecting `bundle` builds its PNG
-prerequisite. `outputs = ["bundle"]` makes just the polyglot the default build
-product; ordinary PNG captures remain available through the `png` output group.
-The previous prereleases used suffixed target names; this API replaces them.
+Renovate and project governance use `yschimke/renovate-config`: squash-only merges,
+branch cleanup, common checks and Protect Main. The shared policy has been applied.

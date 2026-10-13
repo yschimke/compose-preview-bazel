@@ -1,8 +1,4 @@
-"""Local Desktop PNG build/run targets using the existing CLI artifact contract.
-
-Rendering is intentionally local and uncached while the CLI provisions renderer
-sidecars on the host. No nested Bazel invocation or application aspect is needed.
-"""
+"""Offline cached preparation plus optional local rendering through compose-preview."""
 
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 
@@ -10,12 +6,7 @@ def _key(ctx, file):
     path = file.short_path
     return path[3:] if path.startswith("../") else ctx.workspace_name + "/" + path
 
-def _paths(values, runfiles):
-    return [f.short_path if runfiles else f.path for f in values]
-
-def _metadata(ctx, runfiles = False):
-    if ctx.attr.timeout <= 0:
-        fail("timeout must be positive")
+def _metadata(ctx):
     java = ctx.attr.module[JavaInfo]
     project = java.runtime_output_jars
     if not project:
@@ -23,161 +14,133 @@ def _metadata(ctx, runfiles = False):
     runtime = depset(project, transitive = [java.transitive_runtime_jars])
     data = ctx.attr.module[DefaultInfo].default_runfiles
     files = depset(ctx.files.srcs + ctx.files.maven_install, transitive = [runtime, data.files])
-    manifest = ctx.actions.declare_file(ctx.label.name + (".runfiles-artifacts.json" if runfiles else ".artifacts.json"))
-
-    # short_path resolves relative to the main workspace directory in the runfiles tree.
+    manifest = ctx.actions.declare_file(ctx.label.name + ".artifacts.json")
     ctx.actions.write(manifest, json.encode({
         "schemaVersion": 1,
         "target": str(ctx.attr.module.label),
         "configuration": ctx.bin_dir.path,
-        "projectJars": _paths(project, runfiles),
-        "runtimeJars": _paths(runtime.to_list(), runfiles),
-        "sourceFiles": _paths(ctx.files.srcs, runfiles),
-        "dataFiles": _paths(data.files.to_list(), runfiles),
+        "projectJars": [f.path for f in project],
+        "runtimeJars": [f.path for f in runtime.to_list()],
+        "sourceFiles": [f.path for f in ctx.files.srcs],
+        "dataFiles": [f.path for f in data.files.to_list()],
     }))
-    return manifest, files, data
+    return manifest, files
 
 def _impl(ctx):
     if not ctx.attr.outputs or len(depset(ctx.attr.outputs).to_list()) != len(ctx.attr.outputs):
         fail("outputs must be a nonempty list of distinct output kinds")
-    if any([kind not in ["png", "bundle"] for kind in ctx.attr.outputs]):
-        fail("supported outputs are png and bundle")
-    metadata, files, data = _metadata(ctx)
-    run_metadata, _, _ = _metadata(ctx, runfiles = True)
-    output = ctx.actions.declare_directory(ctx.label.name)
+    if any([kind not in ["png", "bundle", "rendered_bundle"] for kind in ctx.attr.outputs]):
+        fail("supported outputs are bundle, png and rendered_bundle")
+    if not ctx.executable.cli and any([kind != "bundle" for kind in ctx.attr.outputs]):
+        fail("png and rendered_bundle require cli; omit cli for source-bundle-only support")
+    metadata, files = _metadata(ctx)
+    bundle = ctx.actions.declare_file(ctx.label.name + ".bundle.png")
     args = ctx.actions.args()
-    args.add(ctx.executable.cli.path)
-    args.add_all([
-        "bazel",
-        "render",
-        "--project",
-        ".",
-        "--artifacts",
-        metadata.path,
-        "--execution-root",
-        ".",
-        "--out",
-        output.path,
-        "--format",
-        "png",
-        "--timeout",
-        str(ctx.attr.timeout),
-        "--json",
-    ])
+    args.add_all(["--artifacts", metadata.path, "--output", bundle.path])
+    if ctx.file.maven_install:
+        args.add_all(["--maven-install", ctx.file.maven_install.path])
     if ctx.attr.filter:
         args.add_all(["--filter", ctx.attr.filter])
-    requirements = {"local": "1", "no-cache": "1", "no-remote": "1"}
-    ctx.actions.run_shell(
-        command = 'exec "$@" >&2',
-        tools = [ctx.attr.cli[DefaultInfo].files_to_run],
-        inputs = depset([metadata], transitive = [files]),
-        outputs = [output],
+    ctx.actions.run(
+        executable = ctx.executable.producer,
+        tools = [ctx.attr.producer[DefaultInfo].files_to_run],
+        inputs = depset([metadata], transitive = [files, ctx.attr.producer[DefaultInfo].files]),
+        outputs = [bundle],
         arguments = [args],
-        env = ctx.attr.env,
-        use_default_shell_env = True,
-        execution_requirements = requirements,
-        mnemonic = "ComposePreviewLocalRender",
-        progress_message = "Rendering local Desktop PNG previews for %{label}",
+        mnemonic = "ComposePreviewPrepare",
+        progress_message = "Preparing offline runnable previews for %{label}",
     )
-    bundle = None
-    if "bundle" in ctx.attr.outputs:
-        bundle = ctx.actions.declare_file(ctx.label.name + ".bundle.png")
-        work = ctx.actions.declare_directory(ctx.label.name + ".bundle-work")
-        pack_args = ctx.actions.args()
-        pack_args.add_all([
-            ctx.executable.cli.path,
-            output.path,
-            work.path,
-            "bazel",
-            "bundle",
-            "--reuse-renders",
-            "--project",
-            ".",
-            "--artifacts",
-            metadata.path,
-            "--execution-root",
-            ".",
-            "--out",
-            work.path,
-            "--output",
-            bundle.path,
-            "--timeout",
-            str(ctx.attr.timeout),
-            "--json",
-        ])
-        if ctx.file.maven_install:
-            pack_args.add_all(["--maven-install", ctx.file.maven_install.path])
-        if ctx.attr.filter:
-            pack_args.add_all(["--filter", ctx.attr.filter])
+    output = None
+    rendered = None
+    if ctx.executable.cli:
+        output = ctx.actions.declare_directory(ctx.label.name + ".renders")
+        render_args = ctx.actions.args()
+        render_args.add_all([ctx.executable.cli.path, "bundle", "render", bundle.path, "--output", output.path])
         ctx.actions.run_shell(
-            command = 'set -eu; cli="$1"; captures="$2"; work="$3"; shift 3; mkdir -p "$work"; cp -R "$captures/." "$work/"; chmod -R u+w "$work"; exec "$cli" "$@" >&2',
+            command = 'exec "$@" >&2',
             tools = [ctx.attr.cli[DefaultInfo].files_to_run],
-            inputs = depset([metadata, output], transitive = [files]),
-            outputs = [bundle, work],
-            arguments = [pack_args],
+            inputs = [bundle],
+            outputs = [output],
+            arguments = [render_args],
             env = ctx.attr.env,
             use_default_shell_env = True,
-            execution_requirements = requirements,
-            mnemonic = "ComposePreviewBundle",
-            progress_message = "Packing existing captures for %{label}",
+            execution_requirements = {"local": "1", "no-cache": "1", "no-remote": "1"},
+            mnemonic = "ComposePreviewLocalRender",
+            progress_message = "Rendering prepared Desktop previews for %{label}",
+        )
+        rendered = ctx.actions.declare_file(ctx.label.name + ".rendered-bundle.png")
+        bake_args = ctx.actions.args()
+        bake_args.add_all(["--bundle", bundle.path, "--renders", output.path, "--output", rendered.path])
+        ctx.actions.run(
+            executable = ctx.executable.producer,
+            tools = [ctx.attr.producer[DefaultInfo].files_to_run],
+            inputs = depset([bundle, output], transitive = [ctx.attr.producer[DefaultInfo].files]),
+            outputs = [rendered],
+            arguments = [bake_args],
+            mnemonic = "ComposePreviewBake",
         )
     launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
-    ctx.actions.write(launcher, """#!/usr/bin/env bash
+    if ctx.executable.cli:
+        ctx.actions.write(launcher, """#!/usr/bin/env bash
+    set -euo pipefail
+    rf="${RUNFILES_DIR:-$0.runfiles}"
+    if [[ ! -d "$rf" ]]; then
+      echo 'compose-preview requires directory runfiles on a Unix host' >&2
+      exit 1
+    fi
+    rf="$(cd "$rf" && pwd -P)"
+    export RUNFILES_DIR="$rf"
+    operation=render
+    if [[ "${1:-}" == render || "${1:-}" == inspect || "${1:-}" == extract ]]; then
+      operation="$1"; shift
+    fi
+    if [[ "$operation" == render ]]; then
+      out="${COMPOSE_PREVIEW_OUT:-${BUILD_WORKSPACE_DIRECTORY:-$PWD}/.compose-preview/outputs/%s}"
+      extra=(--output "$out")
+  for arg in "$@"; do
+    if [[ "$arg" == --output || "$arg" == -o ]]; then extra=(); break; fi
+  done
+  exec "$rf/%s" bundle render "$rf/%s" "${extra[@]}" "$@"
+    fi
+    exec "$rf/%s" bundle "$operation" "$rf/%s" "$@"
+    """ % (ctx.label.name, _key(ctx, ctx.executable.cli), _key(ctx, bundle), _key(ctx, ctx.executable.cli), _key(ctx, bundle)), is_executable = True)
+        runfiles = ctx.runfiles(files = [bundle, ctx.executable.cli]).merge(ctx.attr.cli[DefaultInfo].default_runfiles)
+    else:
+        ctx.actions.write(launcher, """#!/usr/bin/env bash
 set -euo pipefail
 rf="${RUNFILES_DIR:-$0.runfiles}"
-if [[ ! -d "$rf" ]]; then
-  echo 'compose-preview requires directory runfiles on a Unix host' >&2
-  exit 1
+if [[ $# != 0 ]]; then
+  echo 'Source-only target prepares bundles; rendering requires an optional cli attribute.' >&2
+  exit 64
 fi
-rf="$(cd "$rf" && pwd -P)"
-export RUNFILES_DIR="$rf"
-out="${COMPOSE_PREVIEW_OUT:-${BUILD_WORKSPACE_DIRECTORY:-$PWD}/.compose-preview/outputs/%s}"
-mkdir -p "$out"
-cp -R "$rf/%s/." "$out/"
-chmod -R u+w "$out"
-exec "$rf/%s" bazel render --reuse-renders --project "$PWD" --artifacts "$rf/%s" \
-  --execution-root "$rf/%s" --out "$out" --timeout %s %s %s "$@"
-""" % (
-        ctx.label.name,
-        _key(ctx, output),
-        _key(ctx, ctx.executable.cli),
-        _key(ctx, run_metadata),
-        ctx.workspace_name,
-        str(ctx.attr.timeout),
-        ('--maven-install "$rf/%s"' % _key(ctx, ctx.file.maven_install)) if ctx.file.maven_install else "",
-        ("--filter " + _shell_quote(ctx.attr.filter)) if ctx.attr.filter else "",
-    ), is_executable = True)
-    runfiles = ctx.runfiles(files = [run_metadata, ctx.executable.cli, output] + ([bundle] if bundle else []), transitive_files = files)
-    runfiles = runfiles.merge(data).merge(ctx.attr.cli[DefaultInfo].default_runfiles)
-    defaults = ([output] if "png" in ctx.attr.outputs else []) + ([bundle] if bundle else [])
+printf '%%s\n' "$rf/%s"
+""" % _key(ctx, bundle), is_executable = True)
+        runfiles = ctx.runfiles(files = [bundle])
+    groups = {"bundle": depset([bundle]), "png": depset([output] if output else []), "rendered_bundle": depset([rendered] if rendered else [])}
+    defaults = depset(transitive = [groups[kind] for kind in ctx.attr.outputs])
     return [
-        DefaultInfo(executable = launcher, files = depset(defaults), runfiles = runfiles),
+        DefaultInfo(executable = launcher, files = defaults, runfiles = runfiles),
         OutputGroupInfo(
-            png = depset([output]),
-            bundle = depset([bundle] if bundle else []),
+            bundle = groups["bundle"],
+            png = groups["png"],
+            rendered_bundle = groups["rendered_bundle"],
             compose_preview_metadata = depset([metadata]),
             compose_preview_runtime = files,
         ),
     ]
 
-def _shell_quote(value):
-    return "'" + value.replace("'", "'\"'\"'") + "'"
-
-_common = {
-    "maven_install": attr.label(allow_single_file = [".json"], doc = "rules_jvm_external lockfile for portable Maven dependencies."),
-    "module": attr.label(mandatory = True, providers = [JavaInfo]),
-    "cli": attr.label(mandatory = True, executable = True, cfg = "exec", allow_files = True),
-    "srcs": attr.label_list(allow_files = [".kt", ".java"], doc = "Optional own sources, including generated sources."),
-    "timeout": attr.int(default = 300),
-    "filter": attr.string(doc = "Optional preview-id substring; discovery otherwise renders all own previews."),
-}
-
 compose_preview = rule(
     implementation = _impl,
     executable = True,
-    attrs = dict(_common, **{
-        "outputs": attr.string_list(default = ["png"], doc = "Default output groups: png and/or bundle. Bundle depends on the shared PNG render."),
-        "env": attr.string_dict(doc = "Explicit local render environment; action_env flags also apply."),
-    }),
-    doc = "One preview target for build/run, with png and bundle output groups. No sibling target names are generated.",
+    attrs = {
+        "maven_install": attr.label(allow_single_file = [".json"]),
+        "module": attr.label(mandatory = True, providers = [JavaInfo]),
+        "producer": attr.label(mandatory = True, executable = True, cfg = "exec"),
+        "cli": attr.label(executable = True, cfg = "exec", doc = "Optional renderer CLI; omit for source-bundle-only preparation."),
+        "srcs": attr.label_list(allow_files = [".kt", ".java"]),
+        "filter": attr.string(doc = "Build-time preview-ID substring selection; part of the action key."),
+        "outputs": attr.string_list(default = ["bundle"], doc = "Default products: bundle, png and/or rendered_bundle."),
+        "env": attr.string_dict(doc = "Local rendering environment only; preparation does not inherit it."),
+    },
+    doc = "One target: cacheable offline bundle preparation, optional local rendering and baked packaging.",
 )
