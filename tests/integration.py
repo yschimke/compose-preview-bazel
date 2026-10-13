@@ -16,6 +16,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
+import zipfile
 
 
 def invoke(argv, cwd, log, capture=False):
@@ -68,6 +69,8 @@ def check(args):
         build = (consumer / "BUILD.bazel").read_text()
         build = re.sub(r'compose_preview_cli\(\s*name = "preview_cli",.*?\n\)',
                        'alias(name = "preview_cli", actual = "@compose_preview_cli//:cli")', build, flags=re.S)
+        # Exercise the new bundle entry point even with older pinned app fixtures.
+        build = build.replace('name = "ui-preview",', 'name = "ui-preview",\n    bundle = True,\n    maven_install = ":maven_install.json",')
         (consumer / "BUILD.bazel").write_text(build)
         config = consumer / ".compose-preview/bazel.json"
         config.parent.mkdir()
@@ -100,6 +103,21 @@ def check(args):
         assert png(runtime) == png(normal_png), "CLI-first and Bazel-build images differ"
         shutil.copy2(runtime, evidence / "bazel-build.png")
         assert not (consumer / ".compose-preview/bazel").exists(), "Native module should avoid CLI aspect injection"
+        invoke(bazel + ["build", "//:ui-preview-bundle", "--jobs=4", "--action_env=JAVA_HOME", "--action_env=XDG_CACHE_HOME"],
+               consumer, evidence / "native-bundle.log")
+        bundle = consumer / "bazel-bin/ui-preview-bundle.png"
+        assert bundle.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+        with zipfile.ZipFile(bundle) as archive:
+            manifest = json.loads(archive.read("bundle.json"))
+            assert manifest["producer"] == "bazel"
+            coordinates = [entry for entry in manifest["classpath"] if entry["kind"] == "maven"]
+            assert any(entry["artifact"] == "ui-desktop" for entry in coordinates)
+            assert any(entry["artifact"] == "runtime-desktop" for entry in coordinates)
+            assert len(coordinates) > 20, "Published framework dependencies should use Maven coordinates"
+            assert "classes/app.jar" in archive.namelist()
+            assert len([name for name in archive.namelist() if name.startswith("previews/") and name.endswith(".png")]) == 2
+            assert "dependency-resolution.json" in archive.namelist()
+        shutil.copy2(bundle, evidence / "runnable-bundle.png")
         # Launcher works from another cwd, independently of BUILD_WORKSPACE_DIRECTORY.
         launcher = consumer / "bazel-bin/ui-preview-run.sh"
         invoke([str(launcher), "--filter", "RuntimeGreeting", "--output", str(evidence / "outside-cwd.png")],

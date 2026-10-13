@@ -22,7 +22,7 @@ def _metadata(ctx, runfiles = False):
         fail("module must provide its own runtime output jars")
     runtime = depset(project, transitive = [java.transitive_runtime_jars])
     data = ctx.attr.module[DefaultInfo].default_runfiles
-    files = depset(ctx.files.srcs, transitive = [runtime, data.files])
+    files = depset(ctx.files.srcs + ctx.files.maven_install, transitive = [runtime, data.files])
     manifest = ctx.actions.declare_file(ctx.label.name + ".artifacts.json")
 
     # short_path resolves relative to the main workspace directory in the runfiles tree.
@@ -40,10 +40,11 @@ def _metadata(ctx, runfiles = False):
 def _render_impl(ctx):
     metadata, files, data = _metadata(ctx)
     output = ctx.actions.declare_directory(ctx.label.name)
+    bundle = ctx.actions.declare_file(ctx.label.name + ".png") if ctx.attr.emit_bundle else None
     args = ctx.actions.args()
     args.add_all([
         "bazel",
-        "render",
+        "bundle" if bundle else "render",
         "--project",
         ".",
         "--artifacts",
@@ -58,13 +59,17 @@ def _render_impl(ctx):
         str(ctx.attr.timeout),
         "--json",
     ])
+    if bundle:
+        args.add_all(["--output", bundle.path])
+    if ctx.file.maven_install:
+        args.add_all(["--maven-install", ctx.file.maven_install.path])
     if ctx.attr.filter:
         args.add("--filter", ctx.attr.filter)
     ctx.actions.run(
         executable = ctx.executable.cli,
         tools = [ctx.attr.cli[DefaultInfo].files_to_run],
         inputs = depset([metadata], transitive = [files]),
-        outputs = [output],
+        outputs = [output] + ([bundle] if bundle else []),
         arguments = [args],
         env = ctx.attr.env,
         use_default_shell_env = True,
@@ -73,11 +78,12 @@ def _render_impl(ctx):
         progress_message = "Rendering local Desktop PNG previews for %{label}",
     )
     return [
-        DefaultInfo(files = depset([output])),
+        DefaultInfo(files = depset([bundle] if bundle else [output])),
         OutputGroupInfo(
             compose_preview_metadata = depset([metadata]),
             compose_preview_runtime = files,
             preview_png = depset([output]),
+            preview_bundle = depset([bundle] if bundle else []),
         ),
     ]
 
@@ -98,13 +104,14 @@ rf="$(cd "$rf" && pwd -P)"
 export RUNFILES_DIR="$rf"
 out="${COMPOSE_PREVIEW_OUT:-${BUILD_WORKSPACE_DIRECTORY:-$PWD}/.compose-preview/outputs/%s}"
 exec "$rf/%s" bazel render --project "$PWD" --artifacts "$rf/%s" \\
-  --execution-root "$rf/%s" --out "$out" --timeout %s %s "$@"
+  --execution-root "$rf/%s" --out "$out" --timeout %s %s %s "$@"
 """ % (
         ctx.label.name,
         _key(ctx, ctx.executable.cli),
         _key(ctx, metadata),
         ctx.workspace_name,
         str(ctx.attr.timeout),
+        ('--maven-install "$rf/%s"' % _key(ctx, ctx.file.maven_install)) if ctx.file.maven_install else "",
         ("--filter " + _shell_quote(ctx.attr.filter)) if ctx.attr.filter else "",
     ), is_executable = True)
     runfiles = ctx.runfiles(files = [metadata, ctx.executable.cli], transitive_files = files)
@@ -121,6 +128,7 @@ def _shell_quote(value):
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 _common = {
+    "maven_install": attr.label(allow_single_file = [".json"], doc = "rules_jvm_external lockfile for portable Maven dependencies."),
     "module": attr.label(mandatory = True, providers = [JavaInfo]),
     "cli": attr.label(mandatory = True, executable = True, cfg = "exec", allow_files = True),
     "srcs": attr.label_list(allow_files = [".kt", ".java"], doc = "Optional own sources, including generated sources."),
@@ -129,11 +137,12 @@ _common = {
 }
 
 _render = rule(implementation = _render_impl, attrs = dict(_common, **{
+    "emit_bundle": attr.bool(default = False),
     "env": attr.string_dict(doc = "Explicit local render environment; action_env flags also apply."),
 }))
 _run = rule(implementation = _run_impl, attrs = _common, executable = True)
 
-def compose_preview(name, module, cli, srcs = [], filter = "", formats = ["png"], timeout = 300, env = {}, **kwargs):
+def compose_preview(name, module, cli, srcs = [], filter = "", formats = ["png"], timeout = 300, env = {}, bundle = False, maven_install = None, **kwargs):
     """Declare <name> PNG build outputs and <name>-run interactive rendering.
 
     cli must be an executable target carrying its distribution in runfiles. Use
@@ -145,6 +154,7 @@ def compose_preview(name, module, cli, srcs = [], filter = "", formats = ["png"]
     _render(
         name = name,
         module = module,
+        maven_install = maven_install,
         cli = cli,
         srcs = srcs,
         filter = filter,
@@ -152,4 +162,17 @@ def compose_preview(name, module, cli, srcs = [], filter = "", formats = ["png"]
         env = env,
         **kwargs
     )
-    _run(name = name + "-run", module = module, cli = cli, srcs = srcs, filter = filter, timeout = timeout, **kwargs)
+    _run(name = name + "-run", module = module, cli = cli, srcs = srcs, filter = filter, timeout = timeout, maven_install = maven_install, **kwargs)
+    if bundle:
+        _render(
+            name = name + "-bundle",
+            module = module,
+            cli = cli,
+            srcs = srcs,
+            filter = filter,
+            timeout = timeout,
+            env = env,
+            maven_install = maven_install,
+            emit_bundle = True,
+            **kwargs
+        )

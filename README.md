@@ -45,12 +45,15 @@ compose_preview(
     cli = "@compose_preview_cli//:cli",
     srcs = glob(["src/**/*.kt"]),  # optional own/generated Kotlin or Java sources
     formats = ["png"],
+    bundle = True,
+    maven_install = ":maven_install.json",
 )
 ```
 
 ```sh
 bazel run //app:ui-preview-run -- --filter Greeting --output greeting.png
 bazel build //app:ui-preview
+bazel build //app:ui-preview-bundle
 ```
 
 `run` builds the application's runtime closure and runs discovery/rendering locally.
@@ -169,3 +172,22 @@ permissions and Protect Main with required `Bazel rules validation` plus common
 checks. Applying the policy requires an owner credential with Administration
 read/write; the development integration returned HTTP 403. From a checkout of
 that policy change, run `repo-policy/apply-repo-policy.sh --apply compose-preview-bazel`.
+
+## Runnable PNG/ZIP bundles
+
+Set `bundle = True` and provide the `rules_jvm_external` `maven_install` lockfile.
+`bazel build //app:ui-preview-bundle` writes `bazel-bin/app/ui-preview-bundle.png`,
+a PNG/ZIP polyglot in the compose-ai-tools runnable bundle format. Any PNG viewer
+shows its real cover; the preview server can resolve dependencies and re-render it.
+The ordinary CLI supports `compose-preview render --bundle --maven-install maven_install.json`
+and `compose-preview bazel bundle --target //app:ui --output bundle.png`.
+
+Coordinates are preferred even when Bazel transforms JAR bytes. Recovery uses
+lockfile group/version paths, artifact filenames, pom.properties and manifest
+version hints, with a closest identifiable lockfile artifact as a fallback.
+Published checksums are recorded when available; they describe the Maven artifact,
+not transformed Bazel bytes. `dependency-resolution.json` records each decision.
+Unknown/unpublished application dependencies are embedded, while Compose and other
+identified libraries resolve from Maven Central or Google Maven. Full runtime
+closure and resources are retained for reflection. `--embed-deps` explicitly opts
+into an offline bundle. The CLI and server still require their renderer sidecars.
