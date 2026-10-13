@@ -30,7 +30,7 @@ When this rules module is installed, configure the aspect as
 `@rules_compose_preview//:runtime.bzl%compose_preview_aspect` to reuse it rather
 than inject a second tool package. Provider imports/custom aspects and approved
 Blaze wrappers can be selected through
-[CLI configuration](https://github.com/yschimke/compose-ai-tools/blob/agent/bazel-aspect-driver/docs/BAZEL.md).
+[CLI configuration](https://github.com/yschimke/compose-ai-tools/blob/agent/bazel-output-groups/docs/BAZEL.md).
 
 ## Bazel first
 
@@ -44,26 +44,26 @@ compose_preview(
     module = ":ui",  # existing JavaInfo-producing Compose JVM library
     cli = "@compose_preview_cli//:cli",
     srcs = glob(["src/**/*.kt"]),  # optional own/generated Kotlin or Java sources
-    formats = ["png"],
-    bundle = True,
+    outputs = ["png", "bundle"],
     maven_install = ":maven_install.json",
 )
 ```
 
 ```sh
-bazel run //app:ui-preview-run -- --filter Greeting --output greeting.png
+bazel run //app:ui-preview -- --filter Greeting --output greeting.png
 bazel build //app:ui-preview
-bazel build //app:ui-preview-bundle
+bazel build //app:ui-preview --output_groups=bundle
 ```
 
-`run` builds the application's runtime closure and runs discovery/rendering locally.
+`run` builds the configured outputs once, copies captures into a writable local
+workspace and reuses them through the CLI. It does not start a second renderer.
 It accepts normal Bazel-adapter selection/output flags after `--`. Default run
-outputs go to `.compose-preview/outputs/ui-preview-run` in the workspace; override
+outputs go to `.compose-preview/outputs/ui-preview` in the workspace; override
 with `COMPOSE_PREVIEW_OUT` or `--out`. It works from another directory too.
 
 `build` renders all application-owned previews into the declared tree artifact
 `bazel-bin/app/ui-preview/build/compose-previews/`. The existing manifest, captures,
-PNG paths and state files are included; `--output_groups=preview_png` selects that
+PNG paths and state files are included; `--output_groups=png` selects that
 tree. `filter` on the rule narrows build-time selection. Dependency-owned previews
 are excluded, but runtime-only classes/resources remain available. Neither form
 starts a nested build.
@@ -83,7 +83,7 @@ No Bazel Central Registry entry is claimed yet. Start with an immutable commit:
 
 ```starlark
 # MODULE.bazel
-bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.2")
+bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.3")
 git_override(
     module_name = "rules_compose_preview",
     remote = "https://github.com/yschimke/compose-preview-bazel.git",
@@ -92,8 +92,8 @@ git_override(
 ```
 
 The initial PNG-only prerelease is available as a checked source archive below.
-For runnable bundles pin the current tested commit or the subsequent `v0.1.0-rc.2`
-prerelease; do not use the older archive with `bundle = True`:
+For runnable bundles pin the current tested commit or the single-target `v0.1.0-rc.3`
+prerelease; do not use the older archive with `outputs = ["png", "bundle"]`:
 
 ```starlark
 archive_override(
@@ -128,7 +128,7 @@ Repository download uses Bazel's downloader at fetch time. It does not download
 rule code or CLI distributions while rendering. Renderer sidecar provisioning is
 still local, as described above.
 
-Until a CLI release includes [tools #5947](https://github.com/yschimke/compose-ai-tools/pull/5947),
+Until a CLI release includes [tools #5950](https://github.com/yschimke/compose-ai-tools/pull/5950),
 build that branch with `scripts/agent-gradle.sh :cli:installDist :cli:distTar` and use
 the resulting archive. Existing released CLIs without the Bazel adapter cannot
 consume this module. The CLI is independently versioned; rule releases do not
@@ -160,7 +160,7 @@ It compares PNG hashes across all entry points and checks runtime-only/generated
 previews. CI publishes logs and actual rendered images. The
 [export design](https://github.com/yschimke/compose-ai-tools/blob/agent/bazel-aspect-driver/docs/design/BAZEL_PREVIEW_TARGETS.md)
 covers future Remote Compose `.rc`, APNG, layout JSON and Android accessibility
-exports. Unsupported `formats` fail rather than produce placeholder files.
+exports. Unsupported `outputs` fail rather than produce placeholder files.
 
 ## Shared project setup
 
@@ -176,8 +176,9 @@ that policy change, run `repo-policy/apply-repo-policy.sh --apply compose-previe
 
 ## Runnable PNG/ZIP bundles
 
-Set `bundle = True` and provide the `rules_jvm_external` `maven_install` lockfile.
-`bazel build //app:ui-preview-bundle` writes `bazel-bin/app/ui-preview-bundle.png`,
+Set `outputs = ["png", "bundle"]` and provide the `rules_jvm_external`
+`maven_install` lockfile.
+`bazel build //app:ui-preview --output_groups=bundle` writes `bazel-bin/app/ui-preview.bundle.png`,
 a PNG/ZIP polyglot in the compose-ai-tools runnable bundle format. Any PNG viewer
 shows its real cover; the preview server can resolve dependencies and re-render it.
 The ordinary CLI supports `compose-preview render --bundle --maven-install maven_install.json`
@@ -192,3 +193,24 @@ Unknown/unpublished application dependencies are embedded, while Compose and oth
 identified libraries resolve from Maven Central or Google Maven. Full runtime
 closure and resources are retained for reflection. `--embed-deps` explicitly opts
 into an offline bundle. The CLI and server still require their renderer sidecars.
+
+## One target, multiple products
+
+The rule declares only the target name you choose. There are no implicit `-run`
+or `-bundle` siblings. `outputs` selects the default products, and named output
+groups select products for a build:
+
+```sh
+bazel build //app:ui-preview --output_groups=png
+bazel build //app:ui-preview --output_groups=bundle
+bazel build //app:ui-preview --output_groups=png,bundle
+bazel run //app:ui-preview -- --filter Greeting --output greeting.png
+```
+
+One PNG action supplies both the bundle packaging action and the runnable target.
+The bundle action packages those captures; the launcher copies them to writable
+local storage and uses `--reuse-renders`, so neither starts a second renderer.
+Selecting only `png` omits bundle packaging. Selecting `bundle` builds its PNG
+prerequisite. `outputs = ["bundle"]` makes just the polyglot the default build
+product; ordinary PNG captures remain available through the `png` output group.
+The previous prereleases used suffixed target names; this API replaces them.

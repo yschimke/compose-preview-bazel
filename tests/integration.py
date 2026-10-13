@@ -23,6 +23,7 @@ def invoke(argv, cwd, log, capture=False):
     with log.open("w") as stderr:
         result = subprocess.run(argv, cwd=cwd, text=True, stdout=subprocess.PIPE,
                                 stderr=stderr, timeout=600)
+    log.with_suffix(".stdout").write_text(result.stdout)
     if result.returncode:
         raise RuntimeError(f"Command failed ({result.returncode}): {argv}\n{log.read_text()[-8000:]}")
     return result.stdout
@@ -71,9 +72,13 @@ def check(args):
         build = (consumer / "BUILD.bazel").read_text()
         build = re.sub(r'compose_preview_cli\(\s*name = "preview_cli",.*?\n\)',
                        'alias(name = "preview_cli", actual = "@compose_preview_cli//:cli")', build, flags=re.S)
-        # Exercise the new bundle entry point even with older pinned app fixtures.
-        if "bundle = True" not in build:
-            build = build.replace('name = "ui-preview",', 'name = "ui-preview",\n    bundle = True,\n    maven_install = ":maven_install.json",')
+        # Normalize the fixture while migrating the old macro API.
+        build = re.sub(r"\s*bundle = True,", "", build)
+        build = re.sub(r"\s*formats = \[\"png\"\],", "", build)
+        if 'outputs = ["png", "bundle"]' not in build:
+            build = build.replace('name = "ui-preview",', 'name = "ui-preview",\n    outputs = ["png", "bundle"],')
+        if 'maven_install = ":maven_install.json"' not in build:
+            build = build.replace('name = "ui-preview",', 'name = "ui-preview",\n    maven_install = ":maven_install.json",')
         (consumer / "BUILD.bazel").write_text(build)
         config = consumer / ".compose-preview/bazel.json"
         config.parent.mkdir()
@@ -90,12 +95,12 @@ def check(args):
                evidence / "cli-render.log")
         bazel = [str(args.bazel)] + startup
         native_png = evidence / "bazel-run.png"
-        response = json.loads(invoke(bazel + ["run", "//:ui-preview-run", "--jobs=4", "--",
+        response = json.loads(invoke(bazel + ["run", "//:ui-preview", "--jobs=4", "--action_env=JAVA_HOME", "--action_env=XDG_CACHE_HOME", "--",
                                              "--filter", "RuntimeGreeting", "--json", "--output", str(native_png)],
                                      consumer, evidence / "native-run.log"))
         assert len(response["previews"]) == 1 and response["previews"][0]["sha256"]
         assert png(normal_png) == png(native_png), "CLI-first and Bazel-run images differ"
-        invoke(bazel + ["build", "//:ui-preview", "--jobs=4", "--action_env=JAVA_HOME", "--action_env=XDG_CACHE_HOME"],
+        invoke(bazel + ["build", "//:ui-preview", "--output_groups=png", "--jobs=4", "--action_env=JAVA_HOME", "--action_env=XDG_CACHE_HOME"],
                consumer, evidence / "native-build.log")
         tree = consumer / "bazel-bin/ui-preview/build/compose-previews"
         renders = [p for p in (tree / "renders").glob("*.png")
@@ -106,9 +111,9 @@ def check(args):
         assert png(runtime) == png(normal_png), "CLI-first and Bazel-build images differ"
         shutil.copy2(runtime, evidence / "bazel-build.png")
         assert not (consumer / ".compose-preview/bazel").exists(), "Native module should avoid CLI aspect injection"
-        invoke(bazel + ["build", "//:ui-preview-bundle", "--jobs=4", "--action_env=JAVA_HOME", "--action_env=XDG_CACHE_HOME"],
+        invoke(bazel + ["build", "//:ui-preview", "--output_groups=bundle", "--jobs=4", "--action_env=JAVA_HOME", "--action_env=XDG_CACHE_HOME"],
                consumer, evidence / "native-bundle.log")
-        bundle = consumer / "bazel-bin/ui-preview-bundle.png"
+        bundle = consumer / "bazel-bin/ui-preview.bundle.png"
         assert bundle.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
         with zipfile.ZipFile(bundle) as archive:
             manifest = json.loads(archive.read("bundle.json"))
@@ -122,10 +127,18 @@ def check(args):
             assert "dependency-resolution.json" in archive.namelist()
         shutil.copy2(bundle, evidence / "runnable-bundle.png")
         # Launcher works from another cwd, independently of BUILD_WORKSPACE_DIRECTORY.
-        launcher = consumer / "bazel-bin/ui-preview-run.sh"
+        launcher = consumer / "bazel-bin/ui-preview.sh"
         invoke([str(launcher), "--filter", "RuntimeGreeting", "--output", str(evidence / "outside-cwd.png")],
                temporary, evidence / "outside-cwd.log")
         assert png(evidence / "outside-cwd.png") == png(normal_png)
+        assert "[daemon " not in (evidence / "outside-cwd.log").read_text(), "Launcher must reuse captures"
+        labels = invoke(bazel + ["query", "//:all", "--output=label"], consumer, evidence / "labels.log").splitlines()
+        assert "//:ui-preview" in labels
+        assert "//:ui-preview-run" not in labels and "//:ui-preview-bundle" not in labels
+        graph = json.loads(invoke(bazel + ["aquery", "//:ui-preview", "--output_groups=bundle", "--output=jsonproto"], consumer, evidence / "actions.log"))
+        actions = graph.get("actions", [])
+        assert sum(a.get("mnemonic") == "ComposePreviewLocalRender" for a in actions) == 1
+        assert sum(a.get("mnemonic") == "ComposePreviewBundle" for a in actions) == 1
         evidence.joinpath("summary.json").write_text(json.dumps({"cliFirst": "passed", "bazelRun": "passed",
                                                                 "bazelBuild": "passed", "externalArchives": "passed",
                                                                 "pngSha256": png(normal_png)}, indent=2) + "\n")
