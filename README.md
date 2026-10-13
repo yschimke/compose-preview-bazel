@@ -88,16 +88,22 @@ git_override(
 )
 ```
 
-For releases, prefer the small module archive plus checksum from the release page:
+The initial prerelease is available now as a GitHub source archive (about 25 KB).
+This pin has been downloaded and checked:
 
 ```starlark
 archive_override(
     module_name = "rules_compose_preview",
-    urls = ["https://github.com/yschimke/compose-preview-bazel/releases/download/v0.1.0-rc.1/rules_compose_preview-0.1.0-rc.1.tar.gz"],
-    sha256 = "<SHA-256 from the release asset>",
-    strip_prefix = "rules_compose_preview-0.1.0-rc.1",
+    urls = ["https://github.com/yschimke/compose-preview-bazel/archive/refs/tags/v0.1.0-rc.1.tar.gz"],
+    sha256 = "10a53c36d420a029f9272e2b6c8188c84ea89cd84bd4bae2b25c7079d09aa718",
+    strip_prefix = "compose-preview-bazel-0.1.0-rc.1",
 )
 ```
+
+The compact ~10 KB module archive/checksum is also a CI artifact. Initial custom
+release-asset upload was forbidden from the development environment; the tag and
+source archive are published. Subsequent releases can attach compact assets from
+the default-branch release workflow after bumping the module version.
 
 Pin the CLI distribution separately using `use_repo_rule`:
 
@@ -151,3 +157,15 @@ previews. CI publishes logs and actual rendered images. The
 [export design](https://github.com/yschimke/compose-ai-tools/blob/agent/bazel-aspect-driver/docs/design/BAZEL_PREVIEW_TARGETS.md)
 covers future Remote Compose `.rc`, APNG, layout JSON and Android accessibility
 exports. Unsupported `formats` fail rather than produce placeholder files.
+
+## Shared project setup
+
+Renovate extends `github>yschimke/renovate-config`. Common PR-title and attribution
+checks use the names in its repository policy. CI runs packaging validation and a
+separate live external Compose consumer; release publication requires successful
+default-branch CI. [Policy PR #22](https://github.com/yschimke/renovate-config/pull/22)
+registers this repository for squash-only merges, branch cleanup, Actions
+permissions and Protect Main with required `Bazel rules validation` plus common
+checks. Applying the policy requires an owner credential with Administration
+read/write; the development integration returned HTTP 403. From a checkout of
+that policy change, run `repo-policy/apply-repo-policy.sh --apply compose-preview-bazel`.
