@@ -1,0 +1,9 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "defs.bzl",
+    "repositories.bzl",
+    "tool.bzl",
+    "runtime.bzl",
+    "java_info.bzl",
+])
