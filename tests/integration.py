@@ -57,10 +57,10 @@ def check(args):
         for name in ("BUILD.bazel", "MODULE.bazel", "maven_install.json", ".bazelversion", "compose_preview.bzl"):
             shutil.copy2(source / name, consumer / name)
         module = (consumer / "MODULE.bazel").read_text()
-        module = re.sub(r'local_path_override\(module_name = "rules_compose_preview", path = "[^\"]+"\)',
+        module = re.sub(r'(?:local_path_override|git_override)\(\s*module_name = "rules_compose_preview",.*?\)',
                         'archive_override(module_name = "rules_compose_preview", urls = [%s], '
                         'sha256 = "%s", strip_prefix = "%s")' %
-                        (json.dumps(rules_archive.as_uri()), hashlib.sha256(rules_archive.read_bytes()).hexdigest(), rules_archive.name.removesuffix(".tar.gz")), module)
+                        (json.dumps(rules_archive.as_uri()), hashlib.sha256(rules_archive.read_bytes()).hexdigest(), rules_archive.name.removesuffix(".tar.gz")), module, flags=re.S)
         module += '\ncli_repository = use_repo_rule("@rules_compose_preview//:repositories.bzl", "compose_preview_cli_repository")\n'
         module += 'cli_repository(name = "compose_preview_cli", urls = [%s], sha256 = "%s", strip_prefix = "compose-preview-test")\n' % (
             json.dumps(cli_archive.as_uri()), hashlib.sha256(cli_archive.read_bytes()).hexdigest())
