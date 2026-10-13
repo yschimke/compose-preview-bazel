@@ -175,8 +175,8 @@ def check(args):
             # and JVM locales/timezones. This is a fresh execution, not a Bazel cache observation.
             # Reproduce an evicted intermediate output even on a fully materialized local cache.
             generated = consumer / "bazel-bin/GeneratedGreeting.kt"
-            assert generated.is_file()
-            generated.unlink()
+            # CI's disk cache may already have omitted this intermediate source.
+            generated.unlink(missing_ok=True)
             # A cached top-level bundle does not require Bazel to retain/materialize intermediate
             # sources or runtime JARs. Request the contract's raw input group explicitly.
             invoke(bazel + ["build", "//:ui-preview", "--output_groups=compose_preview_metadata,compose_preview_runtime",
