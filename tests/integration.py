@@ -173,6 +173,15 @@ def check(args):
             assert hashlib.sha256(bundle.read_bytes()).hexdigest() == before
             # Re-run the standalone producer against byte-identical inputs under distinct roots
             # and JVM locales/timezones. This is a fresh execution, not a Bazel cache observation.
+            # Reproduce an evicted intermediate output even on a fully materialized local cache.
+            generated = consumer / "bazel-bin/GeneratedGreeting.kt"
+            assert generated.is_file()
+            generated.unlink()
+            # A cached top-level bundle does not require Bazel to retain/materialize intermediate
+            # sources or runtime JARs. Request the contract's raw input group explicitly.
+            invoke(bazel + ["build", "//:ui-preview", "--output_groups=compose_preview_metadata,compose_preview_runtime",
+                            "--remote_download_outputs=all", "--jobs=4"], consumer, evidence / "materialize-inputs.log")
+            assert generated.is_file(), "The raw input group must rematerialize generated sources"
             execution_root = Path(invoke(bazel + ["info", "execution_root"], consumer, evidence / "execution-root.log").strip())
             metadata = json.loads((consumer / "bazel-bin/ui-preview.artifacts.json").read_text())
             produced = []
