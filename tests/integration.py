@@ -58,6 +58,8 @@ def check(args):
         for name in ("BUILD.bazel", "MODULE.bazel", "maven_install.json", ".bazelversion", "compose_preview.bzl"):
             shutil.copy2(source / name, consumer / name)
         module = (consumer / "MODULE.bazel").read_text()
+        version = re.search(r'version\s*=\s*"([^"]+)"', (rules / "MODULE.bazel").read_text())[1]
+        module = re.sub(r'(bazel_dep\(name = "rules_compose_preview", version = ")[^"]+', lambda match: match[1] + version, module)
         module = re.sub(r'(?:local_path_override|git_override)\(\s*module_name = "rules_compose_preview",.*?\)',
                         'archive_override(module_name = "rules_compose_preview", urls = [%s], '
                         'sha256 = "%s", strip_prefix = "%s")' %
@@ -70,7 +72,8 @@ def check(args):
         build = re.sub(r'compose_preview_cli\(\s*name = "preview_cli",.*?\n\)',
                        'alias(name = "preview_cli", actual = "@compose_preview_cli//:cli")', build, flags=re.S)
         # Exercise the new bundle entry point even with older pinned app fixtures.
-        build = build.replace('name = "ui-preview",', 'name = "ui-preview",\n    bundle = True,\n    maven_install = ":maven_install.json",')
+        if "bundle = True" not in build:
+            build = build.replace('name = "ui-preview",', 'name = "ui-preview",\n    bundle = True,\n    maven_install = ":maven_install.json",')
         (consumer / "BUILD.bazel").write_text(build)
         config = consumer / ".compose-preview/bazel.json"
         config.parent.mkdir()

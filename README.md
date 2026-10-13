@@ -83,7 +83,7 @@ No Bazel Central Registry entry is claimed yet. Start with an immutable commit:
 
 ```starlark
 # MODULE.bazel
-bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.1")
+bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.2")
 git_override(
     module_name = "rules_compose_preview",
     remote = "https://github.com/yschimke/compose-preview-bazel.git",
@@ -91,8 +91,9 @@ git_override(
 )
 ```
 
-The initial prerelease is available now as a GitHub source archive (about 25 KB).
-This pin has been downloaded and checked:
+The initial PNG-only prerelease is available as a checked source archive below.
+For runnable bundles pin the current tested commit or the subsequent `v0.1.0-rc.2`
+prerelease; do not use the older archive with `bundle = True`:
 
 ```starlark
 archive_override(
