@@ -6,4 +6,6 @@ exports_files([
     "tool.bzl",
     "runtime.bzl",
     "java_info.bzl",
+    "android.bzl",
+    "android_providers.bzl",
 ])

@@ -5,3 +5,8 @@ module(
 )
 
 bazel_dep(name = "rules_java", version = "9.3.0")
+
+# Only android.bzl loads rules_android. 0.6.6 is the oldest release whose
+# StarlarkAndroidResourcesInfo carries every field the Android aspect reads, so a
+# consumer's own rules_android is not upgraded by this module.
+bazel_dep(name = "rules_android", version = "0.6.6")
