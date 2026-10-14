@@ -3,8 +3,9 @@
 `rules_compose_preview` shares Compose discovery and the runnable PNG/ZIP bundle
 format with [compose-ai-tools](https://github.com/yschimke/compose-ai-tools).
 Experimental Desktop JVM support is tested with Bazel 9.2, Kotlin 2.4.20 and
-Compose Multiplatform 1.11.1. Blaze needs internal validation. Android resources,
-native CMP and additional exports remain future work.
+Compose Multiplatform 1.11.1. Blaze needs internal validation. Android targets
+have an aspect (below); Android rendering through the CLI, native CMP and
+additional exports remain future work.
 
 ## CLI first
 
@@ -24,6 +25,29 @@ BUILD file. For ambiguous packages commit `.compose-preview/bazel.json` with
 `aspect` to `@rules_compose_preview//:runtime.bzl%compose_preview_aspect`.
 Custom aspects/providers and Blaze command wrappers use the same
 [configuration contract](https://github.com/yschimke/compose-ai-tools/blob/main/docs/BAZEL.md).
+
+## Android targets (experimental)
+
+`android.bzl%compose_preview_android_aspect` attaches to an existing
+`android_library` (or `kt_android_library`) and writes artifacts schema 2
+(compose-preview-contracts' `build-artifacts-protocol`): the JVM fields of
+`runtime.bzl` plus an `android` block with a linked resource APK, the manifest it
+was linked against and R classes with the APK's final IDs, first on the runtime
+classpath. A library never links its own resources, so the aspect runs the SDK's
+`aapt2 link` over the compiled resources rules_android already produced; it uses
+only the public `StarlarkAndroidResourcesInfo` provider and the Android SDK
+toolchain (`android_providers.bzl` is the shim to substitute elsewhere).
+
+```sh
+bazel build //app:ui \
+  --aspects=@rules_compose_preview//:android.bzl%compose_preview_android_aspect \
+  --output_groups=compose_preview_metadata,compose_preview_runtime
+```
+
+Requires rules_android 0.6.6 or newer and a registered Android SDK toolchain.
+Assets are not linked yet. Rendering these artifacts needs the CLI's Robolectric
+launch, tracked in
+[compose-ai-tools#5959](https://github.com/yschimke/compose-ai-tools/issues/5959).
 
 ## Source-bundle-only monorepos
 

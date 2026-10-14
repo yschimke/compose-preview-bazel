@@ -27,6 +27,25 @@ jobs:
           name: rules-module
           path: build/release/*
           if-no-files-found: error
+  android-aspect:
+    name: Android aspect
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: bazel-contrib/setup-bazel@8cb04a772ab4c1eb984e9c1b493a182e96c5e425 # v0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: true
+          repository-cache: true
+      # Real rules_android android_library targets on the runner's preinstalled SDK
+      # (ANDROID_HOME): links resources and checks the schema-2 metadata.
+      - name: Build the Android aspect fixture
+        env:
+          COMPOSE_PREVIEW_ANDROID_ASPECT_TEST: "1"
+        run: python3 -m unittest -v tests/test_android_aspect.py
   external:
     name: External Compose consumer
     runs-on: ubuntu-latest

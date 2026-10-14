@@ -1,0 +1,5 @@
+<resources>
+  <color name="brand">#FF3366</color>
+  <!-- Conflicts with ui_impl's own value, which must win the overlay. -->
+  <string name="greeting">Theme greeting</string>
+</resources>

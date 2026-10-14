@@ -1,0 +1,15 @@
+module(name = "android_aspect_test")
+
+bazel_dep(name = "rules_compose_preview")
+local_path_override(
+    module_name = "rules_compose_preview",
+    path = "../..",
+)
+
+bazel_dep(name = "rules_android", version = "0.8.0")
+bazel_dep(name = "rules_java", version = "9.3.0")
+
+android_sdk_repository_extension = use_extension("@rules_android//rules/android_sdk_repository:rule.bzl", "android_sdk_repository_extension")
+use_repo(android_sdk_repository_extension, "androidsdk")
+
+register_toolchains("@androidsdk//:all")

@@ -1,0 +1,19 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+# The shape kt_android_library produces: an android_library without sources that
+# exports the library holding the classes and resources.
+android_library(
+    name = "ui",
+    # As kt_android_library does: the wrapper's resource package is its own attribute.
+    custom_package = "com.example.ui",
+    exports = [":ui_impl"],
+)
+
+android_library(
+    name = "ui_impl",
+    srcs = glob(["src/**/*.java"]),
+    custom_package = "com.example.ui",
+    manifest = "AndroidManifest.xml",
+    resource_files = glob(["res/**"]),
+    deps = ["//theme"],
+)
