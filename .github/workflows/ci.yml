@@ -1,0 +1,66 @@
+name: Bazel rules
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bazel-rules-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    name: Bazel rules validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test packaging and build the module archive
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          python3 scripts/package.py --out build/release
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rules-module
+          path: build/release/*
+          if-no-files-found: error
+  external:
+    name: External Compose consumer
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: yschimke/compose-ai-contrib
+          ref: ba35b753ed658f6a68807c1e4893866ae5444ab5
+          path: contrib
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: yschimke/compose-ai-tools
+          ref: 72ac1b587bf06312a4bd85147fac4511da8a0d04
+          path: tools
+          persist-credentials: false
+      - uses: ./tools/.github/actions/setup
+      - uses: bazel-contrib/setup-bazel@8cb04a772ab4c1eb984e9c1b493a182e96c5e425 # v0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: true
+          repository-cache: true
+      - name: Build the current CLI adapter
+        working-directory: tools
+        run: ./gradlew :bundle-producer:check :bundle-producer:installDist :cli:installDist --stacktrace
+      - name: Compare CLI-first and native-first renders through external archives
+        run: python3 tests/integration.py --fixture contrib/bazel-desktop --cli-dist tools/cli/build/install/compose-preview --producer-dist tools/bundle/producer/build/install/compose-preview-producer
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: external-compose-evidence
+          path: build/bazel-native
+          if-no-files-found: error

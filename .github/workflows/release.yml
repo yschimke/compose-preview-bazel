@@ -1,0 +1,39 @@
+name: Publish rules prerelease
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require a tested default-branch commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          default="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
+          test "$(gh api "repos/$GH_REPO/commits/$default" --jq .sha)" = "$HEAD_SHA"
+          gh run list --workflow ci.yml --commit "$HEAD_SHA" --json conclusion \
+            --jq 'map(select(.conclusion == "success")) | length' > /tmp/passing-runs
+          test "$(cat /tmp/passing-runs)" -gt 0
+      - name: Package and publish immutable prerelease assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          python3 scripts/package.py --out build/release
+          version="$(python3 -c 'import re; print(re.search(r"version\s*=\s*\"([^\"]+)\"", open("MODULE.bazel").read())[1])')"
+          gh release create "v$version" build/release/* --target "$HEAD_SHA" --prerelease \
+            --title "Compose Preview Bazel $version" --generate-notes
