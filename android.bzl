@@ -38,6 +38,10 @@ def _node_assets(node):
     root = "/".join([p for p in (node.label.workspace_root, node.label.package, getattr(node, "assets_dir", None) or "") if p])
     out = []
     for f in assets.to_list():
+        if root and (f.path == root or f.path.endswith("/" + root)):
+            # A generated directory standing for the whole assets_dir.
+            out.append(("", f))
+            continue
         i = f.path.find(root + "/") if root else -1
         out.append((f.path[i + len(root) + 1:] if i >= 0 else f.basename, f))
     return out
@@ -133,7 +137,9 @@ def _link(ctx, target, resources, order):
     for path, f in order.assets.to_list():
         staged[path] = f
     assets = ctx.actions.declare_file(prefix + "assets.txt")
-    ctx.actions.write(assets, "".join(["%s\t%s\n" % (path, f.path) for path, f in staged.items()]))
+
+    # Source first: tab is IFS whitespace, so an empty (whole-directory) path must come last.
+    ctx.actions.write(assets, "".join(["%s\t%s\n" % (f.path, path) for path, f in staged.items()]))
 
     # Libraries without a resource package (an aar_import of a resource-less AAR, for one) key
     # their R.txt under None; they need no R class of their own.
@@ -173,9 +179,16 @@ if [ -n "$extra" ]; then extra_flag="--extra-packages $extra"; fi
 assets_flag=""
 if [ -s "$assets" ]; then
   tab="$(printf '\t')"
-  while IFS="$tab" read -r path src; do
-    mkdir -p "$(dirname "$work/assets/$path")"
-    cp "$src" "$work/assets/$path"
+  while IFS="$tab" read -r src path; do
+    dest="$work/assets/$path"
+    if [ -d "$src" ]; then
+      # A directory (TreeArtifact) input: merge its contents at its place under assets/.
+      mkdir -p "$dest"
+      cp -R "$src/." "$dest/"
+    else
+      mkdir -p "$(dirname "$dest")"
+      cp "$src" "$dest"
+    fi
   done < "$assets"
   assets_flag="-A $work/assets"
 fi
