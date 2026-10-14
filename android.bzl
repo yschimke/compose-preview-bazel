@@ -135,7 +135,9 @@ def _link(ctx, target, resources, order):
     assets = ctx.actions.declare_file(prefix + "assets.txt")
     ctx.actions.write(assets, "".join(["%s\t%s\n" % (path, f.path) for path, f in staged.items()]))
 
-    packages = sorted([p for p in resources.packages_to_r_txts.keys() if p != resources.package])
+    # Libraries without a resource package (an aar_import of a resource-less AAR, for one) key
+    # their R.txt under None; they need no R class of their own.
+    packages = sorted([p for p in resources.packages_to_r_txts.keys() if p and p != resources.package])
 
     args = ctx.actions.args()
     args.add(sdk.aapt2.executable)
