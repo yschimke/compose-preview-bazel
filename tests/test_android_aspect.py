@@ -45,7 +45,8 @@ class AndroidAspectTest(unittest.TestCase):
         self.assertEqual("com.example.ui", android["packageName"])
         for key in ("resourceApk", "manifest", "rJar"):
             self.assertTrue((self.root / android[key]).is_file(), key)
-        self.assertIsInstance(android.get("compileSdk"), int)
+        # Optional in the schema: the SDK layout may not name a platform level.
+        self.assertIsInstance(android.get("compileSdk", 0), int)
 
     def test_exported_classes_are_the_targets_own(self):
         jars = self.metadata["projectJars"]
