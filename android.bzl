@@ -31,10 +31,19 @@ def _own_jars(target, ctx):
     return depset(direct, transitive = exported)
 
 def _compile_sdk(android_jar):
-    # .../platforms/android-36/android.jar -> 36; null when the layout is unfamiliar.
-    for part in android_jar.path.split("/"):
-        if part.startswith("android-") and part[len("android-"):].isdigit():
-            return int(part[len("android-"):])
+    # Any `android-<level>` segment of the jar's path (.../platforms/android-36/android.jar); null
+    # when the SDK layout names none, which the schema allows.
+    path = android_jar.path
+    for i in range(len(path)):
+        if path[i:i + len("android-")] != "android-":
+            continue
+        digits = ""
+        for c in path[i + len("android-"):].elems():
+            if not c.isdigit():
+                break
+            digits += c
+        if digits:
+            return int(digits)
     return None
 
 def _own_node_first(target, resources):
@@ -69,7 +78,18 @@ def _link(ctx, target, resources):
     own = [n.compiled_resources for n in nodes if n.label == target.label and n.compiled_resources]
     exported = [n.compiled_resources for n in nodes if n.label != target.label and n.compiled_resources]
     direct = [f for f in resources.direct_compiled_resources.to_list() if f not in own and f not in exported]
-    compiled = resources.transitive_compiled_resources.to_list() + direct + exported + own
+    nearer = {f: True for f in own + exported + direct}
+
+    # The transitive set is preorder (a library before its dependencies) and can repeat what the
+    # target exports; reversed, it lists dependencies first, and anything nearer is dropped so it
+    # is overlaid only once, in its own position.
+    transitive = []
+    seen = dict(nearer)
+    for f in reversed(resources.transitive_compiled_resources.to_list()):
+        if f not in seen:
+            seen[f] = True
+            transitive.append(f)
+    compiled = transitive + direct + exported + own
     packages = sorted([p for p in resources.packages_to_r_txts.keys() if p != resources.package])
 
     args = ctx.actions.args()
