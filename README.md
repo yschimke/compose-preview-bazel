@@ -167,10 +167,10 @@ JVM resources packaged in JARs are tested.
 ## Install and publish
 
 The rules, producer and CLI are independently pinned. There is no BCR entry yet.
-Use `git_override` at a tested immutable commit or the `v0.1.0-rc.4` source archive:
+Use `git_override` at a tested immutable commit or the `v0.1.0-rc.5` source archive:
 
 ```starlark
-bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.4")
+bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.5")
 git_override(
     module_name = "rules_compose_preview",
     remote = "https://github.com/yschimke/compose-preview-bazel.git",
