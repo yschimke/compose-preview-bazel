@@ -21,6 +21,27 @@ _OwnJarsInfo = provider(
     fields = {"jars": "depset of File"},
 )
 
+_ResourceOrderInfo = provider(
+    doc = "Compiled resource archives in overlay order: every dependency before its dependents.",
+    fields = {"compiled": "postorder depset of File"},
+)
+
+def _resource_order(target, ctx):
+    # rules_android's own depsets are preorder (a library before its dependencies) and mix
+    # dependencies' nodes into "direct", so no flattening of them yields aapt2's overlay order.
+    # Build it here instead: postorder over deps and exports puts the target's archive last.
+    own = []
+    if StarlarkAndroidResourcesInfo in target:
+        for node in target[StarlarkAndroidResourcesInfo].direct_resources_nodes.to_list():
+            if node.label == target.label and node.compiled_resources:
+                own.append(node.compiled_resources)
+    children = []
+    for name in ("deps", "exports"):
+        value = getattr(ctx.rule.attr, name, None)
+        if type(value) == "list":
+            children += [d[_ResourceOrderInfo].compiled for d in value if _ResourceOrderInfo in d]
+    return depset(own, transitive = children, order = "postorder")
+
 def _own_jars(target, ctx):
     exported = [
         dep[_OwnJarsInfo].jars
@@ -63,7 +84,7 @@ def _manifest(ctx, target, resources):
 """ % resources.package)
     return manifest
 
-def _link(ctx, target, resources):
+def _link(ctx, target, resources, order):
     sdk = ctx.toolchains[ANDROID_SDK_TOOLCHAIN_TYPE].android_sdk_info
     java_runtime = ctx.attr._jdk[JavaRuntimeInfo]
     prefix = "_compose_preview/%s/" % target.label.name
@@ -71,25 +92,17 @@ def _link(ctx, target, resources):
     apk = ctx.actions.declare_file(prefix + "resources.ap_")
     r_jar = ctx.actions.declare_file(prefix + "r-final.jar")
 
-    # Dependencies, then exported targets, then the target's own resources: aapt2 lets later -R
-    # inputs overlay earlier ones. direct_compiled_resources lists the target's own archive
-    # before its exports', so order the direct nodes explicitly.
-    nodes = _own_node_first(target, resources)
-    own = [n.compiled_resources for n in nodes if n.label == target.label and n.compiled_resources]
-    exported = [n.compiled_resources for n in nodes if n.label != target.label and n.compiled_resources]
-    direct = [f for f in resources.direct_compiled_resources.to_list() if f not in own and f not in exported]
-    nearer = {f: True for f in own + exported + direct}
-
-    # The transitive set is preorder (a library before its dependencies) and can repeat what the
-    # target exports; reversed, it lists dependencies first, and anything nearer is dropped so it
-    # is overlaid only once, in its own position.
-    transitive = []
-    seen = dict(nearer)
-    for f in reversed(resources.transitive_compiled_resources.to_list()):
+    # Overlay order (dependencies first, the target's own archive last) comes from the aspect's
+    # own traversal. Archives it did not reach (a dependency through an attribute other than
+    # deps/exports) go first, as the most distant.
+    ordered = order.to_list()
+    seen = {f: True for f in ordered}
+    unordered = []
+    for f in resources.transitive_compiled_resources.to_list() + resources.direct_compiled_resources.to_list():
         if f not in seen:
             seen[f] = True
-            transitive.append(f)
-    compiled = transitive + direct + exported + own
+            unordered.append(f)
+    compiled = unordered + ordered
     packages = sorted([p for p in resources.packages_to_r_txts.keys() if p != resources.package])
 
     args = ctx.actions.args()
@@ -140,16 +153,20 @@ find "$work/gen" -name '*.java' > "$work/sources"
 
 def _impl(target, ctx):
     own = _own_jars(target, ctx)
-    if JavaInfo not in target:
-        return [_OwnJarsInfo(jars = own)]
-    if StarlarkAndroidResourcesInfo not in target:
-        fail("compose-preview's Android aspect needs an Android target with resources: %s" % target.label)
+    order = _resource_order(target, ctx)
+    providers = [_OwnJarsInfo(jars = own), _ResourceOrderInfo(compiled = order)]
+
+    # Propagation reaches every dependency, JVM-only ones included; only an Android target with
+    # its own classes reports. A selected target that does not gets no metadata output, and the
+    # CLI reports that no metadata file was produced for it.
+    if JavaInfo not in target or StarlarkAndroidResourcesInfo not in target:
+        return providers
     java = target[JavaInfo]
     project_jars = own.to_list()
     if not project_jars:
-        fail("compose-preview target has no application runtime jars: %s" % target.label)
+        return providers
     resources = target[StarlarkAndroidResourcesInfo]
-    linked = _link(ctx, target, resources)
+    linked = _link(ctx, target, resources, order)
 
     # The final-ID R classes must win over every library's non-final R classes.
     runtime = depset(
@@ -181,8 +198,7 @@ def _impl(target, ctx):
         "dataFiles": [f.path for f in runfiles.to_list() if f.path not in runtime_paths],
         "android": android,
     }))
-    return [
-        _OwnJarsInfo(jars = own),
+    return providers + [
         OutputGroupInfo(
             compose_preview_metadata = depset([metadata]),
             compose_preview_runtime = depset(
@@ -192,12 +208,12 @@ def _impl(target, ctx):
         ),
     ]
 
-# Propagates only along `exports`, so a kt_android_library (an android_library
-# exporting the Kotlin classes) reports the Kotlin jars as its own. JavaInfo
-# already carries the runtime closure.
+# Propagates along `exports`, so a kt_android_library (an android_library
+# exporting the Kotlin classes) reports the Kotlin jars as its own, and along
+# `deps`, to order resource overlays. JavaInfo already carries the runtime closure.
 compose_preview_android_aspect = aspect(
     implementation = _impl,
-    attr_aspects = ["exports"],
+    attr_aspects = ["deps", "exports"],
     attrs = {
         # Compiles the generated R sources; the same pinned JDK tool.bzl defaults to.
         "_jdk": attr.label(
