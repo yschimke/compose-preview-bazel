@@ -1,0 +1,6 @@
+# rules_android builds its own Java tools from source and needs Java 17+ language
+# levels (its README's recommended flags); Bazel's default is 11.
+common --java_language_version=17
+common --tool_java_language_version=17
+common --java_runtime_version=remotejdk_17
+common --tool_java_runtime_version=remotejdk_17
