@@ -215,7 +215,7 @@ CI publishes these artifacts; tagged prereleases have GitHub source archives.
 Releases go through release-please (`.github/workflows/release-please.yml`). It
 keeps a `chore(main): release X` pull request open from the conventional commits on
 `main`. Merging it tags `vX`, creates the GitHub prerelease, and attaches the
-compact archive and checksum. Versions stay on `0.1.0-rc.N` (`versioning:
+compact archive and checksum; any later run attaches them if a release still lacks them. Versions stay on `0.1.0-rc.N` (`versioning:
 prerelease`) until the config drops `prerelease`; `MODULE.bazel` and this README
 carry the version markers it rewrites. Older prereleases used different APIs and
 required rendering to prepare bundles.
