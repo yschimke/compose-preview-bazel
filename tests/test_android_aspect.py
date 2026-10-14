@@ -73,6 +73,15 @@ class AndroidAspectTest(unittest.TestCase):
         self.assertIn(b"Hello from Bazel", table)
         self.assertNotIn(b"Theme greeting", table)
 
+    def test_resource_apk_packs_transitive_assets(self):
+        apk = self.root / self.metadata["android"]["resourceApk"]
+        with zipfile.ZipFile(apk) as archive:
+            names = set(archive.namelist())
+            self.assertIn("assets/theme-only.txt", names)
+            self.assertIn("assets/nested/ui-only.txt", names)
+            # The target's own asset replaces a dependency's at the same path.
+            self.assertEqual(b"ui", archive.read("assets/shared.txt"))
+
 
 if __name__ == "__main__":
     unittest.main()

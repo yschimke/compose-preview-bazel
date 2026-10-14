@@ -4,8 +4,8 @@
 format with [compose-ai-tools](https://github.com/yschimke/compose-ai-tools).
 Experimental Desktop JVM support is tested with Bazel 9.2, Kotlin 2.4.20 and
 Compose Multiplatform 1.11.1. Blaze needs internal validation. Android targets
-have an aspect (below); Android rendering through the CLI, native CMP and
-additional exports remain future work.
+render through the CLI with the Android aspect (below); native CMP and additional
+exports remain future work.
 
 ## CLI first
 
@@ -45,9 +45,23 @@ bazel build //app:ui \
 ```
 
 Requires rules_android 0.6.6 or newer and a registered Android SDK toolchain.
-Assets are not linked yet. Rendering these artifacts needs the CLI's Robolectric
-launch, tracked in
-[compose-ai-tools#5959](https://github.com/yschimke/compose-ai-tools/issues/5959).
+Assets reached through `deps` and `exports` are packed into the APK under
+`assets/`, a target's own replacing a dependency's at the same path.
+
+The CLI renders these artifacts on its Robolectric daemon when
+`.compose-preview/bazel.json` names this aspect:
+
+```json
+{
+  "schemaVersion": 1,
+  "target": "//app:ui",
+  "aspect": "@rules_compose_preview//:android.bzl%compose_preview_android_aspect"
+}
+```
+
+`compose-preview render` and `compose-preview bazel bundle` then work as for
+Desktop targets. compose-ai-contrib's `bazel-android-render` job is the
+end-to-end proof on a rules_android `kt_android_library`.
 
 ## Source-bundle-only monorepos
 

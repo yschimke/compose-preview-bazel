@@ -2,8 +2,9 @@
 
 Extends runtime.bzl's JVM metadata (artifacts schema 1) with the linked resources
 a Robolectric render needs (schema 2, compose-preview-contracts'
-build-artifacts-protocol): a standalone resource APK, the manifest it was linked
-against and R classes carrying the final IDs of that APK.
+build-artifacts-protocol): a standalone resource APK (with the transitive assets
+packed under assets/), the manifest it was linked against and R classes carrying
+the final IDs of that APK.
 
 An android_library never links its resources; only binaries and
 android_local_test do. This aspect therefore links them itself with the SDK's
@@ -22,25 +23,47 @@ _OwnJarsInfo = provider(
 )
 
 _ResourceOrderInfo = provider(
-    doc = "Compiled resource archives in overlay order: every dependency before its dependents.",
-    fields = {"compiled": "postorder depset of File"},
+    doc = "Compiled resource archives and assets in overlay order: every dependency before its dependents.",
+    fields = {
+        "compiled": "postorder depset of File",
+        "assets": "postorder depset of (path inside assets/, File) tuples",
+    },
 )
+
+def _node_assets(node):
+    # An asset's path inside the APK is relative to its library's assets_dir.
+    assets = getattr(node, "assets", None)
+    if not assets:
+        return []
+    root = "/".join([p for p in (node.label.workspace_root, node.label.package, getattr(node, "assets_dir", None) or "") if p])
+    out = []
+    for f in assets.to_list():
+        i = f.path.find(root + "/") if root else -1
+        out.append((f.path[i + len(root) + 1:] if i >= 0 else f.basename, f))
+    return out
 
 def _resource_order(target, ctx):
     # rules_android's own depsets are preorder (a library before its dependencies) and mix
     # dependencies' nodes into "direct", so no flattening of them yields aapt2's overlay order.
     # Build it here instead: postorder over deps and exports puts the target's archive last.
     own = []
+    own_assets = []
     if StarlarkAndroidResourcesInfo in target:
         for node in target[StarlarkAndroidResourcesInfo].direct_resources_nodes.to_list():
-            if node.label == target.label and node.compiled_resources:
+            if node.label != target.label:
+                continue
+            if node.compiled_resources:
                 own.append(node.compiled_resources)
+            own_assets += _node_assets(node)
     children = []
     for name in ("deps", "exports"):
         value = getattr(ctx.rule.attr, name, None)
         if type(value) == "list":
-            children += [d[_ResourceOrderInfo].compiled for d in value if _ResourceOrderInfo in d]
-    return depset(own, transitive = children, order = "postorder")
+            children += [d[_ResourceOrderInfo] for d in value if _ResourceOrderInfo in d]
+    return _ResourceOrderInfo(
+        compiled = depset(own, transitive = [c.compiled for c in children], order = "postorder"),
+        assets = depset(own_assets, transitive = [c.assets for c in children], order = "postorder"),
+    )
 
 def _own_jars(target, ctx):
     exported = [
@@ -95,7 +118,7 @@ def _link(ctx, target, resources, order):
     # Overlay order (dependencies first, the target's own archive last) comes from the aspect's
     # own traversal. Archives it did not reach (a dependency through an attribute other than
     # deps/exports) go first, as the most distant.
-    ordered = order.to_list()
+    ordered = order.compiled.to_list()
     seen = {f: True for f in ordered}
     unordered = []
     for f in resources.transitive_compiled_resources.to_list() + resources.direct_compiled_resources.to_list():
@@ -103,6 +126,15 @@ def _link(ctx, target, resources, order):
             seen[f] = True
             unordered.append(f)
     compiled = unordered + ordered
+
+    # Assets staged into one directory in the same order, so a target's own asset replaces a
+    # dependency's at the same path, as an APK merge would.
+    staged = {}
+    for path, f in order.assets.to_list():
+        staged[path] = f
+    assets = ctx.actions.declare_file(prefix + "assets.txt")
+    ctx.actions.write(assets, "".join(["%s\t%s\n" % (path, f.path) for path, f in staged.items()]))
+
     packages = sorted([p for p in resources.packages_to_r_txts.keys() if p != resources.package])
 
     args = ctx.actions.args()
@@ -113,11 +145,12 @@ def _link(ctx, target, resources, order):
     args.add(manifest)
     args.add(sdk.android_jar)
     args.add(":".join(packages))
+    args.add(assets)
     args.add_all(compiled)
 
     ctx.actions.run_shell(
         inputs = depset(
-            [manifest, sdk.android_jar] + compiled,
+            [manifest, sdk.android_jar, assets] + compiled + staged.values(),
             transitive = [java_runtime.files],
         ),
         tools = [sdk.aapt2],
@@ -126,8 +159,8 @@ def _link(ctx, target, resources, order):
         mnemonic = "ComposePreviewAndroidLink",
         progress_message = "Linking Compose preview resources for %{label}",
         command = """set -eu
-aapt2="$1"; jdk="$2"; apk="$3"; rjar="$4"; manifest="$5"; android_jar="$6"; extra="$7"
-shift 7
+aapt2="$1"; jdk="$2"; apk="$3"; rjar="$4"; manifest="$5"; android_jar="$6"; extra="$7"; assets="$8"
+shift 8
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 set -- "$@"
@@ -135,9 +168,18 @@ overlays=""
 for zip in "$@"; do overlays="$overlays -R $zip"; done
 extra_flag=""
 if [ -n "$extra" ]; then extra_flag="--extra-packages $extra"; fi
+assets_flag=""
+if [ -s "$assets" ]; then
+  tab="$(printf '\t')"
+  while IFS="$tab" read -r path src; do
+    mkdir -p "$(dirname "$work/assets/$path")"
+    cp "$src" "$work/assets/$path"
+  done < "$assets"
+  assets_flag="-A $work/assets"
+fi
 # shellcheck disable=SC2086
 "$aapt2" link -o "$apk" --manifest "$manifest" -I "$android_jar" --auto-add-overlay \
-  --no-version-vectors --java "$work/gen" $extra_flag $overlays
+  --no-version-vectors --java "$work/gen" $extra_flag $assets_flag $overlays
 mkdir "$work/classes"
 find "$work/gen" -name '*.java' > "$work/sources"
 "$jdk/bin/javac" -nowarn -encoding UTF-8 -d "$work/classes" "@$work/sources"
@@ -154,7 +196,7 @@ find "$work/gen" -name '*.java' > "$work/sources"
 def _impl(target, ctx):
     own = _own_jars(target, ctx)
     order = _resource_order(target, ctx)
-    providers = [_OwnJarsInfo(jars = own), _ResourceOrderInfo(compiled = order)]
+    providers = [_OwnJarsInfo(jars = own), order]
 
     # Propagation reaches every dependency, JVM-only ones included; only an Android target with
     # its own classes reports. A selected target that does not gets no metadata output, and the
