@@ -1,0 +1,119 @@
+# Keeps a "chore(main): release X" pull request up to date from the conventional commits on main,
+# and turns merging it into a published prerelease: release-please tags vX and creates the GitHub
+# release, then `publish` attaches the compact rules archive and its checksum.
+#
+# One release-please invocation is enough here. compose-preview-contracts splits it in two because
+# its releases are drafts (a draft creates no tag, so the PR half re-proposes the version being
+# released); these releases are published immediately, so the tag exists before the PR is computed.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # tags + GitHub releases
+      issues: write # create the autorelease: pending / tagged labels on first use
+      pull-requests: write # open/update the release PR
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      sha: ${{ steps.rp.outputs.sha }}
+      pr: ${{ steps.rp.outputs.pr }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Not gated on `release_created`: the action can create the release and then fail in its PR
+  # pass (release-please-action#1203), and a re-run reports `release_created=false` for a release
+  # that exists. So every run finishes the release the manifest names if it lacks its archive, and
+  # does nothing when the archive is already there or no such release exists.
+  publish:
+    name: Publish rules archive
+    needs: release-please
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Find the released version and whether it still needs its archive
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CREATED_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          tag="${CREATED_TAG:-v$(git show origin/main:.release-please-manifest.json | jq -r '."."')}"
+          if ! assets="$(gh release view "$tag" --json assets --jq '[.assets[].name] | join(" ")' 2>/dev/null)"; then
+            echo "no release $tag yet; nothing to publish"
+            exit 0
+          fi
+          archive="rules_compose_preview-${tag#v}.tar.gz"
+          if [[ " $assets " == *" $archive "* ]]; then
+            echo "$tag already carries $archive"
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Package and attach the rules archive
+        if: ${{ steps.find.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.find.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git checkout --quiet "$TAG"
+          version="$(python3 -c 'import re; print(re.search(r"version\s*=\s*\"([^\"]+)\"", open("MODULE.bazel").read())[1])')"
+          test "v$version" = "$TAG" || { echo "::error::MODULE.bazel at $TAG says $version"; exit 1; }
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          python3 scripts/package.py --out build/release
+          gh release upload "$TAG" build/release/* --clobber
+
+  # GITHUB_TOKEN starts no pull_request workflows, so the release PR it writes never gets its
+  # required checks. Dispatch them on the release branch; each reports the same check name on the
+  # branch head (renovate-config repo-policy README, "Pull requests a workflow opens").
+  release-pr-checks:
+    name: Required checks on the release PR
+    needs: release-please
+    if: ${{ needs.release-please.outputs.pr != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Dispatch the required checks on the release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RP_PR: ${{ needs.release-please.outputs.pr }}
+        run: |
+          set -euo pipefail
+          number="$(jq -r '.number // empty' <<<"$RP_PR")"
+          [ -n "$number" ] || { echo "no release PR in this run"; exit 0; }
+          pr="$(gh pr view "$number" --json state,headRefName)"
+          [ "$(jq -r .state <<<"$pr")" = OPEN ] || { echo "release PR is not open"; exit 0; }
+          branch="$(jq -r .headRefName <<<"$pr")"
+          gh workflow run ci.yml --ref "$branch"
+          gh workflow run pr-title.yml --ref "$branch" -f pr="$number"
+          gh workflow run no-agent-attribution.yml --ref "$branch" -f pr="$number"

@@ -167,10 +167,12 @@ JVM resources packaged in JARs are tested.
 ## Install and publish
 
 The rules, producer and CLI are independently pinned. There is no BCR entry yet.
+<!-- x-release-please-start-version -->
 Use `git_override` at a tested immutable commit or the `v0.1.0-rc.5` source archive:
+<!-- x-release-please-end -->
 
 ```starlark
-bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.5")
+bazel_dep(name = "rules_compose_preview", version = "0.1.0-rc.5")  # x-release-please-version
 git_override(
     module_name = "rules_compose_preview",
     remote = "https://github.com/yschimke/compose-preview-bazel.git",
@@ -209,8 +211,14 @@ uses `compose_preview_cli` with its launcher and distribution files.
 `python3 scripts/package.py --out build/release` produces a deterministic compact
 rules archive and checksum. CLI/producer binaries stay out of the rules archive.
 CI publishes these artifacts; tagged prereleases have GitHub source archives.
-The existing default-branch release workflow can publish compact archives. Older
-prereleases used different APIs and required rendering to prepare bundles.
+
+Releases go through release-please (`.github/workflows/release-please.yml`). It
+keeps a `chore(main): release X` pull request open from the conventional commits on
+`main`. Merging it tags `vX`, creates the GitHub prerelease, and attaches the
+compact archive and checksum; any later run attaches them if a release still lacks them. Versions stay on `0.1.0-rc.N` (`versioning:
+prerelease`) until the config drops `prerelease`; `MODULE.bazel` and this README
+carry the version markers it rewrites. Older prereleases used different APIs and
+required rendering to prepare bundles.
 
 ## Verification and project setup
 

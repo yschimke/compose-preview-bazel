@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "aec483ff832bc1abdc304e85d9fc961424ab1a3d",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "rules_compose_preview",
+      "include-component-in-tag": false,
+      "prerelease": true,
+      "versioning": "prerelease",
+      "prerelease-type": "rc",
+      "extra-files": [
+        "MODULE.bazel",
+        "README.md"
+      ]
+    }
+  }
+}
