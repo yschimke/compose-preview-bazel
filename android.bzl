@@ -37,8 +37,13 @@ def _compile_sdk(android_jar):
             return int(part[len("android-"):])
     return None
 
+def _own_node_first(target, resources):
+    nodes = resources.direct_resources_nodes.to_list()
+    return [n for n in nodes if n.label == target.label] + [n for n in nodes if n.label != target.label]
+
 def _manifest(ctx, target, resources):
-    for node in resources.direct_resources_nodes.to_list():
+    # Prefer the target's own manifest over those of the targets it exports.
+    for node in _own_node_first(target, resources):
         if node.manifest:
             return node.manifest
     manifest = ctx.actions.declare_file("_compose_preview/%s/AndroidManifest.xml" % target.label.name)
@@ -57,9 +62,14 @@ def _link(ctx, target, resources):
     apk = ctx.actions.declare_file(prefix + "resources.ap_")
     r_jar = ctx.actions.declare_file(prefix + "r-final.jar")
 
-    # Dependencies first, the target's own resources last: later -R inputs overlay earlier ones.
-    compiled = resources.transitive_compiled_resources.to_list() + \
-               resources.direct_compiled_resources.to_list()
+    # Dependencies, then exported targets, then the target's own resources: aapt2 lets later -R
+    # inputs overlay earlier ones. direct_compiled_resources lists the target's own archive
+    # before its exports', so order the direct nodes explicitly.
+    nodes = _own_node_first(target, resources)
+    own = [n.compiled_resources for n in nodes if n.label == target.label and n.compiled_resources]
+    exported = [n.compiled_resources for n in nodes if n.label != target.label and n.compiled_resources]
+    direct = [f for f in resources.direct_compiled_resources.to_list() if f not in own and f not in exported]
+    compiled = resources.transitive_compiled_resources.to_list() + direct + exported + own
     packages = sorted([p for p in resources.packages_to_r_txts.keys() if p != resources.package])
 
     args = ctx.actions.args()

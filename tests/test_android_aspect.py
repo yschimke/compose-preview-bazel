@@ -68,6 +68,9 @@ class AndroidAspectTest(unittest.TestCase):
         # aapt2 writes resource names to a UTF-8 key pool.
         self.assertIn(b"greeting", table)
         self.assertIn(b"brand", table)
+        # The target's own value overlays a dependency's conflicting one.
+        self.assertIn(b"Hello from Bazel", table)
+        self.assertNotIn(b"Theme greeting", table)
 
 
 if __name__ == "__main__":

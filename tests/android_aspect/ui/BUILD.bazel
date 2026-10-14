@@ -4,6 +4,8 @@ load("@rules_android//rules:rules.bzl", "android_library")
 # exports the library holding the classes and resources.
 android_library(
     name = "ui",
+    # As kt_android_library does: the wrapper's resource package is its own attribute.
+    custom_package = "com.example.ui",
     exports = [":ui_impl"],
 )
 
