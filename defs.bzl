@@ -1,12 +1,59 @@
 """Offline cached preparation plus optional local rendering through compose-preview."""
 
 load(":java_info.bzl", "JavaInfo")
+load(":launcher.bzl", "RUNFILES_INIT", "RUNFILES_LIBRARY", "rlocation_path", "rlocation_path_of_output")
 load(":render_toolchain.bzl", "RENDER_TOOLCHAIN_TYPE", "render_inputs")
 load(":runtime.bzl", "compose_preview_metadata_args")
 
-def _key(ctx, file):
-    path = file.short_path
-    return path[3:] if path.startswith("../") else ctx.workspace_name + "/" + path
+# `bazel run` launchers; str.format templates, so a literal shell brace is doubled. rlocation is
+# given the launcher's own repository, which applies the repository mapping without the runfiles
+# library having to work out where the script sits.
+_RENDER_LAUNCHER = """\
+#!/usr/bin/env bash
+{init}
+set -euo pipefail
+runfiles_export_envvars
+resolve() {{
+  local path
+  if ! path="$(rlocation "$1" '{repo}')" || [[ -z "$path" ]]; then
+    echo "compose-preview: $1 is missing from the runfiles" >&2
+    exit 1
+  fi
+  [[ "$path" == /* ]] || path="$PWD/$path"
+  printf '%s' "$path"
+}}
+cli="$(resolve '{cli}')"
+bundle="$(resolve '{bundle}')"
+operation=render
+if [[ "${{1:-}}" == render || "${{1:-}}" == inspect || "${{1:-}}" == extract ]]; then
+  operation="$1"
+  shift
+fi
+if [[ "$operation" == render ]]; then
+  out="${{COMPOSE_PREVIEW_OUT:-${{BUILD_WORKSPACE_DIRECTORY:-$PWD}}/.compose-preview/outputs/{name}}}"
+  extra=(--output "$out")
+  for arg in "$@"; do
+    if [[ "$arg" == --output || "$arg" == -o ]]; then
+      extra=()
+      break
+    fi
+  done
+  exec "$cli" bundle render "$bundle" ${{extra[@]+"${{extra[@]}}"}} "$@"
+fi
+exec "$cli" bundle "$operation" "$bundle" "$@"
+"""
+
+_SOURCE_ONLY_LAUNCHER = """\
+#!/usr/bin/env bash
+{init}
+set -euo pipefail
+runfiles_export_envvars
+if [[ $# != 0 ]]; then
+  echo 'Source-only target prepares bundles; rendering requires an optional cli attribute.' >&2
+  exit 64
+fi
+rlocation '{bundle}' '{repo}'
+"""
 
 def _metadata(ctx):
     java = ctx.attr.module[JavaInfo]
@@ -117,42 +164,22 @@ def _impl(ctx):
             mnemonic = "ComposePreviewBake",
         )
     launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
+    runfiles = ctx.runfiles(files = [bundle]).merge(ctx.attr._runfiles_library[DefaultInfo].default_runfiles)
     if ctx.executable.cli:
-        ctx.actions.write(launcher, """#!/usr/bin/env bash
-    set -euo pipefail
-    rf="${RUNFILES_DIR:-$0.runfiles}"
-    if [[ ! -d "$rf" ]]; then
-      echo 'compose-preview requires directory runfiles on a Unix host' >&2
-      exit 1
-    fi
-    rf="$(cd "$rf" && pwd -P)"
-    export RUNFILES_DIR="$rf"
-    operation=render
-    if [[ "${1:-}" == render || "${1:-}" == inspect || "${1:-}" == extract ]]; then
-      operation="$1"; shift
-    fi
-    if [[ "$operation" == render ]]; then
-      out="${COMPOSE_PREVIEW_OUT:-${BUILD_WORKSPACE_DIRECTORY:-$PWD}/.compose-preview/outputs/%s}"
-      extra=(--output "$out")
-  for arg in "$@"; do
-    if [[ "$arg" == --output || "$arg" == -o ]]; then extra=(); break; fi
-  done
-  exec "$rf/%s" bundle render "$rf/%s" "${extra[@]}" "$@"
-    fi
-    exec "$rf/%s" bundle "$operation" "$rf/%s" "$@"
-    """ % (ctx.label.name, _key(ctx, ctx.executable.cli), _key(ctx, bundle), _key(ctx, ctx.executable.cli), _key(ctx, bundle)), is_executable = True)
-        runfiles = ctx.runfiles(files = [bundle, ctx.executable.cli]).merge(ctx.attr.cli[DefaultInfo].default_runfiles)
+        ctx.actions.write(launcher, _RENDER_LAUNCHER.format(
+            init = RUNFILES_INIT,
+            cli = rlocation_path(ctx, ctx.attr.cli),
+            bundle = rlocation_path_of_output(ctx, bundle),
+            name = ctx.label.name,
+            repo = ctx.label.repo_name,
+        ), is_executable = True)
+        runfiles = runfiles.merge(ctx.attr.cli[DefaultInfo].default_runfiles)
     else:
-        ctx.actions.write(launcher, """#!/usr/bin/env bash
-set -euo pipefail
-rf="${RUNFILES_DIR:-$0.runfiles}"
-if [[ $# != 0 ]]; then
-  echo 'Source-only target prepares bundles; rendering requires an optional cli attribute.' >&2
-  exit 64
-fi
-printf '%%s\n' "$rf/%s"
-""" % _key(ctx, bundle), is_executable = True)
-        runfiles = ctx.runfiles(files = [bundle])
+        ctx.actions.write(launcher, _SOURCE_ONLY_LAUNCHER.format(
+            init = RUNFILES_INIT,
+            bundle = rlocation_path_of_output(ctx, bundle),
+            repo = ctx.label.repo_name,
+        ), is_executable = True)
     groups = {"bundle": depset([bundle]), "png": depset([output] if output else []), "rendered_bundle": depset([rendered] if rendered else [])}
     defaults = depset(transitive = [groups[kind] for kind in ctx.attr.outputs])
     return [
@@ -172,6 +199,7 @@ compose_preview = rule(
     attrs = {
         "maven_install": attr.label(allow_single_file = [".json"]),
         "_stage_maven": attr.label(default = Label(":stage_maven.sh"), allow_single_file = True),
+        "_runfiles_library": attr.label(default = RUNFILES_LIBRARY),
         "module": attr.label(mandatory = True, providers = [JavaInfo]),
         "producer": attr.label(mandatory = True, executable = True, cfg = "exec"),
         "cli": attr.label(executable = True, cfg = "exec", doc = "Optional renderer CLI; omit for source-bundle-only preparation."),
