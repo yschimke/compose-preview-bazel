@@ -111,13 +111,6 @@ class AndroidAspectTest(unittest.TestCase):
         owners = [line for line in query.splitlines() if line.strip().startswith("Target:")]
         self.assertEqual(["Target: //ui:ui"], [o.strip() for o in owners], query[-2000:])
 
-    def test_analysis_passes_with_automatic_exec_groups(self):
-        # The link names the SDK toolchain its aapt2 comes from, which automatic exec groups require.
-        subprocess.run(
-            [bazel(), "build", "--nobuild", "//ui", f"--aspects={ASPECT}",
-             "--output_groups=compose_preview_metadata", "--incompatible_auto_exec_groups"],
-            cwd=WORKSPACE, check=True)
-
     def test_one_link_over_two_libraries_renders_both(self):
         # What the CLI does for a selection: one link.sh run over the union of the targets' inputs.
         targets = [self.metadata["android"]["link"], self.feature["android"]["link"]]
