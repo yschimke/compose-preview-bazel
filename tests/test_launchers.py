@@ -12,7 +12,9 @@ class LauncherTest(unittest.TestCase):
         launcher = (ROOT / "launcher.bzl").read_text()
         self.assertIn('Label("@rules_shell//shell/runfiles")', launcher)
         self.assertIn("# --- begin runfiles.bash initialization v3 ---", launcher)
-        self.assertIn('$(rlocationpath %s)', launcher)
+        # One helper, for every file: $(rlocationpath) rejects an aliased attribute's label.
+        self.assertNotIn("expand_location(", launcher)
+        self.assertIn("def rlocation_path(ctx, file):", launcher)
         for name in ("defs.bzl", "tool.bzl"):
             source = (ROOT / name).read_text()
             self.assertIn("RUNFILES_INIT", source, name)

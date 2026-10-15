@@ -79,6 +79,17 @@ def _test_render_without_toolchain_is_local_impl(env, target):
     mnemonics.contains("ComposePreviewLocalRender")
     mnemonics.not_contains("ComposePreviewRender")
 
+def _test_cli_may_be_an_alias(name):
+    # As tests/integration.py and a CLI from compose_preview_cli_repository wire it.
+    util.helper_target(native.alias, name = name + "_cli", actual = ":cli")
+    _preview(name = name + "_subject", cli = name + "_cli", outputs = ["bundle"])
+    analysis_test(name = name, impl = _test_cli_may_be_an_alias_impl, target = name + "_subject")
+
+def _test_cli_may_be_an_alias_impl(env, target):
+    env.expect.that_target(target).default_outputs().contains_predicate(
+        matching.file_basename_equals(target.label.name + ".bundle.png"),
+    )
+
 def compose_preview_test_suite(name):
     test_suite(
         name = name,
@@ -89,5 +100,6 @@ def compose_preview_test_suite(name):
             _test_png_requires_cli,
             _test_toolchain_render_is_cacheable,
             _test_render_without_toolchain_is_local,
+            _test_cli_may_be_an_alias,
         ],
     )

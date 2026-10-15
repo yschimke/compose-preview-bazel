@@ -21,28 +21,19 @@ source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \\
 # --- end runfiles.bash initialization v3 ---
 """
 
-def rlocation_path(ctx, target):
-    """The rlocation path of a target's single file, as $(rlocationpath) prints it.
+def rlocation_path(ctx, file):
+    """The rlocation path of a File, as $(rlocationpath) prints it.
+
+    $(rlocationpath) cannot be used for these files. The bundle is an output this rule declares,
+    so no attribute names it; and the CLI attribute is often an alias (as for a CLI from
+    compose_preview_cli_repository), whose Target.label is the actual target's, which
+    ctx.expand_location does not accept for the attribute. So this spells out the same mapping:
+    a file in another repository has a short path of ../<repository>/<path>, and one in the
+    main repository is <workspace name>/<path>.
 
     Args:
       ctx: the rule context.
-      target: a Target from one of the rule's attributes.
-
-    Returns:
-      The path to pass to rlocation.
-    """
-    return ctx.expand_location("$(rlocationpath %s)" % target.label, targets = [target])
-
-def rlocation_path_of_output(ctx, file):
-    """The rlocation path of a File this rule declares.
-
-    $(rlocationpath) expands only labels of the rule's attributes, and a declared output has
-    none, so this spells out the same mapping: a file in another repository has a short path of
-    ../<repository>/<path>, and one in the main repository is <workspace name>/<path>.
-
-    Args:
-      ctx: the rule context.
-      file: a File the rule declared.
+      file: a File in the rule's runfiles.
 
     Returns:
       The path to pass to rlocation.

@@ -1,7 +1,7 @@
 """Offline cached preparation plus optional local rendering through compose-preview."""
 
 load(":java_info.bzl", "JavaInfo")
-load(":launcher.bzl", "RUNFILES_INIT", "RUNFILES_LIBRARY", "rlocation_path", "rlocation_path_of_output")
+load(":launcher.bzl", "RUNFILES_INIT", "RUNFILES_LIBRARY", "rlocation_path")
 load(":render_toolchain.bzl", "RENDER_TOOLCHAIN_TYPE", "render_inputs")
 load(":runtime.bzl", "compose_preview_metadata_args")
 
@@ -168,8 +168,8 @@ def _impl(ctx):
     if ctx.executable.cli:
         ctx.actions.write(launcher, _RENDER_LAUNCHER.format(
             init = RUNFILES_INIT,
-            cli = rlocation_path(ctx, ctx.attr.cli),
-            bundle = rlocation_path_of_output(ctx, bundle),
+            cli = rlocation_path(ctx, ctx.executable.cli),
+            bundle = rlocation_path(ctx, bundle),
             name = ctx.label.name,
             repo = ctx.label.repo_name,
         ), is_executable = True)
@@ -180,7 +180,7 @@ def _impl(ctx):
     else:
         ctx.actions.write(launcher, _SOURCE_ONLY_LAUNCHER.format(
             init = RUNFILES_INIT,
-            bundle = rlocation_path_of_output(ctx, bundle),
+            bundle = rlocation_path(ctx, bundle),
             repo = ctx.label.repo_name,
         ), is_executable = True)
     groups = {"bundle": depset([bundle]), "png": depset([output] if output else []), "rendered_bundle": depset([rendered] if rendered else [])}

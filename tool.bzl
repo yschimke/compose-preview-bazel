@@ -19,7 +19,7 @@ def _cli_impl(ctx):
     wrapper = ctx.actions.declare_file(ctx.label.name + ".sh")
     ctx.actions.write(wrapper, _CLI_LAUNCHER.format(
         init = RUNFILES_INIT,
-        launcher = rlocation_path(ctx, ctx.attr.launcher),
+        launcher = rlocation_path(ctx, ctx.file.launcher),
         repo = ctx.label.repo_name,
     ), is_executable = True)
     return [DefaultInfo(
