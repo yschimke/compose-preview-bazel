@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.6](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.5...v0.1.0-rc.6) (2026-10-15)
+
+
+### Bug Fixes
+
+* link Android resources once for the selected target, portable outside stock Bazel ([#9](https://github.com/yschimke/compose-preview-bazel/issues/9)) ([d24e483](https://github.com/yschimke/compose-preview-bazel/commit/d24e4836ea5e9d852738ecb46faf4b7de1c6437c))
+
 ## [0.1.0-rc.5](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.4...v0.1.0-rc.5) (2026-10-15)
 
 
