@@ -109,17 +109,20 @@ def render_inputs(info, maven_jars = None):
         # rules_jvm_external keeps each jar at v1/<scheme>/<host>/<repository path>/<group>/
         # <artifact>/<version>/<file>. The repository path is unknown, so link every suffix that
         # still holds a group, artifact, version and file; the resolver finds the one that fits.
+        # Its jvm_import stamps each jar as processed_<file> beside the original name's place.
         lines += [
             'mkdir -p "$stage/m2"',
             "while IFS= read -r jar; do",
             '  case "$jar" in */v1/*/*) ;; *) continue ;; esac',
             '  rest="${jar#*/v1/*/}"; rest="${rest#*/}"',
+            '  base="${rest##*/}"; base="${base#processed_}"; dir="${rest%/*}"',
             "  while :; do",
-            '    mkdir -p "$stage/m2/$(dirname "$rest")"',
-            '    ln -sf "$PWD/$jar" "$stage/m2/$rest"',
-            '    case "$rest" in */*/*/*/*) rest="${rest#*/}" ;; *) break ;; esac',
+            '    mkdir -p "$stage/m2/$dir"',
+            '    ln -sf "$PWD/$jar" "$stage/m2/$dir/$base"',
+            '    case "$dir" in */*/*/*) dir="${dir#*/}" ;; *) break ;; esac',
             "  done",
             'done < "%s"' % maven_jars.path,
+            'echo "compose_preview: staged $(find "$stage/m2" -name "*.jar" | wc -l) Maven jar links" >&2',
         ]
     options = [
         "-Dcomposeai.network=off",
