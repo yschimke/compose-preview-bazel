@@ -268,6 +268,9 @@ def _impl(target, ctx):
         "configuration": ctx.bin_dir.path,
         "projectJars": [f.path for f in project_jars],
         "runtimeJars": [f.path for f in runtime_files],
+        # The target that produced each jar (File.owner): names the coordinate of a jar whose
+        # name and path hide it, and the target to rebuild for exact bytes in this workspace.
+        "runtimeJarOwners": {f.path: str(f.owner) for f in runtime_files if f.owner},
         "sourceFiles": [f.path for f in sources],
         "dataFiles": [f.path for f in runfiles.to_list() if f.path not in runtime_paths],
         "android": android,
