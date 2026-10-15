@@ -104,8 +104,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: yschimke/compose-ai-tools
-          # main with compose-ai-tools#6027: the render toolchain path passes `--local-jars`.
-          ref: 8c67a129ca8abbd1d666a1ceceb43a4711c23a24
+          # main with compose-ai-tools#6027 (`--local-jars`) and #6028 (provisioned-SDK clamp).
+          ref: c6d7e4528e8e74680d0a797f5a1420988105c044
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
@@ -145,8 +145,8 @@ jobs:
         with:
           repository: yschimke/compose-ai-tools
           # main with compose-ai-tools#6023 (the producer's artifacts schema 2, `bundle render`'s
-          # Android flags) and #6027 (`bundle render --local-jars`).
-          ref: 8c67a129ca8abbd1d666a1ceceb43a4711c23a24
+          # Android flags), #6027 (`--local-jars`) and #6028 (provisioned-SDK clamp).
+          ref: c6d7e4528e8e74680d0a797f5a1420988105c044
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
