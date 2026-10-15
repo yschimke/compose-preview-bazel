@@ -1,6 +1,6 @@
 """Offline cached preparation plus optional local rendering through compose-preview."""
 
-load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+load(":java_info.bzl", "JavaInfo")
 
 def _key(ctx, file):
     path = file.short_path
