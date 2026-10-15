@@ -98,6 +98,40 @@ class RenderToolchainTest(unittest.TestCase):
             self.assertNotIn("json.encode({", (ROOT / name).read_text(), name)
         self.assertIn('set_param_file_format("multiline")', (ROOT / "runtime.bzl").read_text())
 
+    def test_android_render_stages_the_android_daemon_and_android_all_offline(self):
+        source = (ROOT / "render_toolchain.bzl").read_text()
+        for setting in ('("lib-daemon-android", info.android_daemon)', '("robolectric-deps", info.android_all)',
+                        "-Dcomposeai.cli.libDaemonAndroidDir=$stage/lib-daemon-android",
+                        "-Dcomposeai.cli.libRendererAndroidDir=$stage/lib-daemon-android",
+                        'export COMPOSE_PREVIEW_ROBOLECTRIC_DEPS_DIR="$stage/robolectric-deps"'):
+            self.assertIn(setting, source)
+        # Cacheable only when both Android inputs are declared.
+        self.assertIn("return bool(info.android_daemon) and bool(info.android_all)", source)
+        defs = (ROOT / "defs.bzl").read_text()
+        self.assertIn("if toolchain and android and not renders_android(toolchain.compose_preview_render):", defs)
+        self.assertIn("android = bool(android),", defs)
+
+    def test_android_render_passes_its_sdk_jar_and_clock(self):
+        defs = (ROOT / "defs.bzl").read_text()
+        for flag in ('"--android-jar"', '"--android-sdk"', '"--clock-packages"'):
+            self.assertIn(flag, defs)
+        # Default on, like Gradle's composePreview.pinAppClock and bazel.json's pinAppClock.
+        self.assertRegex(defs, r'"pin_app_clock": attr\.bool\(\s*default = True')
+
+    def test_module_aspect_skips_non_android_targets(self):
+        android = (ROOT / "android.bzl").read_text()
+        aspect = android.split("compose_preview_android_module_aspect = aspect(", 1)[1]
+        # A Desktop module never resolves the Android SDK toolchain.
+        self.assertIn("required_providers = [AndroidIdeInfo]", aspect)
+        self.assertIn("aspects = [compose_preview_android_module_aspect]", (ROOT / "defs.bzl").read_text())
+
+    def test_render_resolves_recorded_coordinates_from_its_own_jars(self):
+        defs = (ROOT / "defs.bzl").read_text()
+        cacheable = re.search(r"if toolchain:(.*?)else:", defs, re.S).group(1)
+        # By content, from the runtime jars the action already declares; never a host cache.
+        self.assertIn('render_args.add_all(["--local-jars", jars])', cacheable)
+        self.assertIn("-Duser.home=$stage/home", (ROOT / "render_toolchain.bzl").read_text())
+
     def test_toolchain_type_is_declared(self):
         self.assertIn('toolchain_type(name = "render_toolchain_type")', (ROOT / "BUILD.bazel").read_text())
 

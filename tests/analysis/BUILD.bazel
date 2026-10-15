@@ -2,6 +2,7 @@ load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//:render_toolchain.bzl", "compose_preview_render_toolchain")
 load("//:tool.bzl", "compose_preview_cli")
+load(":android/fixtures.bzl", "fake_android_library", "fake_android_sdk")
 load(":compose_preview_tests.bzl", "compose_preview_test_suite")
 
 # Fixtures: analysis only, so none of these is ever built or run.
@@ -25,6 +26,45 @@ compose_preview_render_toolchain(name = "render_inputs")
 toolchain(
     name = "render_toolchain",
     toolchain = ":render_inputs",
+    toolchain_type = "//:render_toolchain_type",
+)
+
+# An Android library and SDK as rules_android provides them; see android/fixtures.bzl.
+fake_android_library(
+    name = "android_module",
+    compiled_resources = "android/resources.zip",
+    java = ":module",
+    manifest = "android/AndroidManifest.xml",
+    package = "com.example.ui",
+)
+
+sh_binary(
+    name = "aapt2",
+    srcs = ["tool.sh"],
+)
+
+fake_android_sdk(
+    name = "android_sdk",
+    aapt2 = ":aapt2",
+    android_jar = "android/platforms/android-36/android.jar",
+)
+
+toolchain(
+    name = "android_sdk_toolchain",
+    toolchain = ":android_sdk",
+    toolchain_type = "@rules_android//toolchains/android_sdk:toolchain_type",
+)
+
+# The Desktop render toolchain above plus the Android inputs, so Android renders are cacheable.
+compose_preview_render_toolchain(
+    name = "android_render_inputs",
+    android_all = ["android/android-all-instrumented-16-robolectric-13921718-i7.jar"],
+    android_daemon = ["android/0000-daemon.jar"],
+)
+
+toolchain(
+    name = "android_render_toolchain",
+    toolchain = ":android_render_inputs",
     toolchain_type = "//:render_toolchain_type",
 )
 
