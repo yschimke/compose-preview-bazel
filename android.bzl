@@ -158,54 +158,32 @@ def _link(ctx, target, resources, order):
 
     ctx.actions.run_shell(
         inputs = depset(
-            [manifest, sdk.android_jar, assets] + compiled + staged.values(),
+            [manifest, sdk.android_jar, assets, ctx.file._link] + compiled + staged.values(),
             transitive = [java_runtime.files],
         ),
         tools = [sdk.aapt2],
         outputs = [apk, r_jar],
-        arguments = [args],
+        arguments = [ctx.file._link.path, args],
         mnemonic = "ComposePreviewAndroidLink",
         progress_message = "Linking Compose preview resources for %{label}",
-        command = """set -eu
-aapt2="$1"; jdk="$2"; apk="$3"; rjar="$4"; manifest="$5"; android_jar="$6"; extra="$7"; assets="$8"
-shift 8
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-set -- "$@"
-overlays=""
-for zip in "$@"; do overlays="$overlays -R $zip"; done
-extra_flag=""
-if [ -n "$extra" ]; then extra_flag="--extra-packages $extra"; fi
-assets_flag=""
-if [ -s "$assets" ]; then
-  tab="$(printf '\t')"
-  while IFS="$tab" read -r src path; do
-    dest="$work/assets/$path"
-    if [ -d "$src" ]; then
-      # A directory (TreeArtifact) input: merge its contents at its place under assets/.
-      mkdir -p "$dest"
-      cp -R "$src/." "$dest/"
-    else
-      mkdir -p "$(dirname "$dest")"
-      cp "$src" "$dest"
-    fi
-  done < "$assets"
-  assets_flag="-A $work/assets"
-fi
-# shellcheck disable=SC2086
-"$aapt2" link -o "$apk" --manifest "$manifest" -I "$android_jar" --auto-add-overlay \
-  --no-version-vectors --java "$work/gen" $extra_flag $assets_flag $overlays
-mkdir "$work/classes"
-find "$work/gen" -name '*.java' > "$work/sources"
-"$jdk/bin/javac" -nowarn -encoding UTF-8 -d "$work/classes" "@$work/sources"
-"$jdk/bin/jar" --create --file "$rjar" --date=1980-01-01T00:00:02Z -C "$work/classes" .
-""",
+        command = 'script="$1"; shift; exec /bin/sh "$script" "$@"',
     )
     return struct(
         manifest = manifest,
         apk = apk,
         r_jar = r_jar,
         compile_sdk = _compile_sdk(sdk.android_jar),
+        # What a link over several targets needs, so a caller can relink their union with
+        # link.sh: the overlay order, the staged assets, every R package and the tools.
+        inputs = struct(
+            compiled = compiled,
+            assets = staged,
+            packages = [resources.package] + packages,
+            aapt2 = sdk.aapt2.executable,
+            java_home = java_runtime.java_home,
+            java_files = java_runtime.files,
+            android_jar = sdk.android_jar,
+        ),
     )
 
 def _impl(target, ctx):
@@ -243,6 +221,16 @@ def _impl(target, ctx):
     }
     if linked.compile_sdk:
         android["compileSdk"] = linked.compile_sdk
+    link_inputs = linked.inputs
+    android["link"] = {
+        "script": ctx.file._link.path,
+        "aapt2": link_inputs.aapt2.path,
+        "javaHome": link_inputs.java_home,
+        "androidJar": link_inputs.android_jar.path,
+        "packages": link_inputs.packages,
+        "compiledResources": [f.path for f in link_inputs.compiled],
+        "assets": [{"path": path, "file": f.path} for path, f in link_inputs.assets.items()],
+    }
     metadata = ctx.actions.declare_file(target.label.name + ".compose-preview.json")
     ctx.actions.write(metadata, json.encode({
         "schemaVersion": 2,
@@ -259,8 +247,9 @@ def _impl(target, ctx):
         OutputGroupInfo(
             compose_preview_metadata = depset([metadata]),
             compose_preview_runtime = depset(
-                sources + [linked.apk, linked.manifest],
-                transitive = [runtime, runfiles],
+                sources + [linked.apk, linked.manifest, ctx.file._link, link_inputs.aapt2, link_inputs.android_jar] +
+                link_inputs.compiled + link_inputs.assets.values(),
+                transitive = [runtime, runfiles, link_inputs.java_files],
             ),
         ),
     ]
@@ -272,6 +261,8 @@ compose_preview_android_aspect = aspect(
     implementation = _impl,
     attr_aspects = ["deps", "exports"],
     attrs = {
+        # The resource link, shared with the CLI's link over a whole selection.
+        "_link": attr.label(default = Label("//:link.sh"), allow_single_file = True),
         # Compiles the generated R sources; the same pinned JDK tool.bzl defaults to.
         "_jdk": attr.label(
             default = "@rules_java//toolchains:remotejdk_17",

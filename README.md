@@ -48,6 +48,13 @@ Requires rules_android 0.6.6 or newer and a registered Android SDK toolchain.
 Assets reached through `deps` and `exports` are packed into the APK under
 `assets/`, a target's own replacing a dependency's at the same path.
 
+The `android.link` block records what that link was made from: the compiled
+resource archives in overlay order, the staged assets, every R package (the
+target's own first) and the aapt2, JDK and `android.jar` it used, all
+materialized by the `compose_preview_runtime` output group. `link.sh` is the link
+itself, run by the aspect per target and by the CLI once over the union of a
+selection's targets, so several libraries render from one resource APK.
+
 The CLI renders these artifacts on its Robolectric daemon when
 `.compose-preview/bazel.json` names this aspect:
 

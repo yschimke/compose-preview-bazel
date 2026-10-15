@@ -16,7 +16,7 @@ def package(source: Path, output: Path) -> Path:
     with archive.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as gz:
         with tarfile.open(fileobj=gz, mode="w") as tar:
             for path in sorted(source.iterdir()):
-                if not path.is_file() or not (path.suffix == ".bzl" or path.name in
+                if not path.is_file() or not (path.suffix in {".bzl", ".sh"} or path.name in
                                              {"MODULE.bazel", "BUILD.bazel", "LICENSE", "README.md"}):
                     continue
                 info = tar.gettarinfo(str(path), arcname=f"{prefix}/{path.relative_to(source)}")

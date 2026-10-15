@@ -8,4 +8,5 @@ exports_files([
     "java_info.bzl",
     "android.bzl",
     "android_providers.bzl",
+    "link.sh",
 ])
