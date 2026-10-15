@@ -283,6 +283,7 @@ required rendering to prepare bundles.
 ## Verification and project setup
 
 ```sh
+buildifier -mode=check -lint=warn -r .   # CI pins v8.2.1
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tests/integration.py \
   --fixture /path/to/compose-ai-contrib/bazel-desktop \
