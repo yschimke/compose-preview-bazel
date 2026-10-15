@@ -143,9 +143,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: yschimke/compose-ai-tools
-          # Must carry the producer's artifacts schema 2 and `bundle render`'s Android flags
-          # (compose-ai-tools agent/bazel-android-render): bump to the main commit that lands it.
-          ref: 72ac1b587bf06312a4bd85147fac4511da8a0d04
+          # main with compose-ai-tools#6023: the producer's artifacts schema 2 and
+          # `bundle render`'s Android flags.
+          ref: 399ed1139e9b64be674de79186b9576d9c62ce04
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
