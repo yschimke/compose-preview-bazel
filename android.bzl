@@ -11,11 +11,19 @@ android_local_test do. This aspect therefore links them itself with the SDK's
 aapt2, using only the public resources provider and the Android SDK toolchain,
 so it does not depend on rules_android's internal resource pipeline. Outputs live
 under `_compose_preview/` and never collide with the target's own.
+
+Two aspects, so the walk over a large graph stays cheap:
+- compose_preview_android_collector propagates along deps and exports. It carries
+  no tools and flattens nothing; each target only adds its own jars and resource
+  archives to depsets.
+- compose_preview_android_aspect is the one the CLI names. It does not propagate:
+  it requires the collector, and links and writes metadata once, for the target
+  it is applied to. Its tools (link.sh, the JDK, the SDK toolchain) are therefore
+  dependencies of the selected target only, never of the libraries it reaches.
 """
 
-load("@rules_java//java/common/rules:java_runtime.bzl", "JavaRuntimeInfo")
 load(":android_providers.bzl", "ANDROID_SDK_TOOLCHAIN_TYPE", "StarlarkAndroidResourcesInfo")
-load(":java_info.bzl", "JavaInfo")
+load(":java_info.bzl", "JDK_RUNTIME", "JavaInfo", "JavaRuntimeInfo")
 
 _OwnJarsInfo = provider(
     doc = "A target's own compiled jars, including those of targets it exports.",
@@ -167,6 +175,9 @@ def _link(ctx, target, resources, order):
     args.add_all(compiled)
 
     ctx.actions.run_shell(
+        # aapt2 is a tool from the SDK toolchain; naming the toolchain lets automatic exec
+        # groups place the action (--incompatible_auto_exec_groups).
+        toolchain = ANDROID_SDK_TOOLCHAIN_TYPE,
         inputs = depset(
             [manifest, sdk.android_jar, assets, ctx.file._link] + compiled + staged.values(),
             transitive = [java_runtime.files],
@@ -197,22 +208,29 @@ def _link(ctx, target, resources, order):
         ),
     )
 
-def _impl(target, ctx):
-    own = _own_jars(target, ctx)
-    order = _resource_order(target, ctx)
-    providers = [_OwnJarsInfo(jars = own), order]
+def _collect_impl(target, ctx):
+    return [_OwnJarsInfo(jars = _own_jars(target, ctx)), _resource_order(target, ctx)]
 
-    # Propagation reaches every dependency, JVM-only ones included; only an Android target with
-    # its own classes reports. A selected target that does not gets no metadata output, and the
-    # CLI reports that no metadata file was produced for it.
+# Propagates along `exports`, so a kt_android_library (an android_library
+# exporting the Kotlin classes) reports the Kotlin jars as its own, and along
+# `deps`, to order resource overlays. JavaInfo already carries the runtime closure.
+compose_preview_android_collector = aspect(
+    implementation = _collect_impl,
+    attr_aspects = ["deps", "exports"],
+    provides = [_OwnJarsInfo, _ResourceOrderInfo],
+)
+
+def _impl(target, ctx):
+    # A selected target that is not an Android library with its own classes gets no metadata
+    # output, and the CLI reports that no metadata file was produced for it.
     if JavaInfo not in target or StarlarkAndroidResourcesInfo not in target:
-        return providers
+        return []
     java = target[JavaInfo]
-    project_jars = own.to_list()
+    project_jars = target[_OwnJarsInfo].jars.to_list()
     if not project_jars:
-        return providers
+        return []
     resources = target[StarlarkAndroidResourcesInfo]
-    linked = _link(ctx, target, resources, order)
+    linked = _link(ctx, target, resources, target[_ResourceOrderInfo])
 
     # The final-ID R classes must win over every library's non-final R classes.
     runtime = depset(
@@ -254,7 +272,7 @@ def _impl(target, ctx):
         "dataFiles": [f.path for f in runfiles.to_list() if f.path not in runtime_paths],
         "android": android,
     }))
-    return providers + [
+    return [
         OutputGroupInfo(
             compose_preview_metadata = depset([metadata]),
             compose_preview_runtime = depset(
@@ -265,21 +283,17 @@ def _impl(target, ctx):
         ),
     ]
 
-# Propagates along `exports`, so a kt_android_library (an android_library
-# exporting the Kotlin classes) reports the Kotlin jars as its own, and along
-# `deps`, to order resource overlays. JavaInfo already carries the runtime closure.
 compose_preview_android_aspect = aspect(
     implementation = _impl,
-    attr_aspects = ["deps", "exports"],
+    # Applied to the selected target only; the collector walks its dependencies.
+    requires = [compose_preview_android_collector],
     attrs = {
-        # The resource link, shared with the CLI's link over a whole selection.
-        "_link": attr.label(default = Label("//:link.sh"), allow_single_file = True),
-        # Compiles the generated R sources; the same pinned JDK tool.bzl defaults to.
-        "_jdk": attr.label(
-            default = "@rules_java//toolchains:remotejdk_17",
-            providers = [JavaRuntimeInfo],
-            cfg = "exec",
-        ),
+        # The resource link, shared with the CLI's link over a whole selection. Relative to
+        # this package, so the rules also load from a vendored copy below a repository root.
+        "_link": attr.label(default = Label(":link.sh"), allow_single_file = True),
+        # Compiles the generated R sources; the JDK java_info.bzl names, which a deployment
+        # substitutes along with the providers.
+        "_jdk": attr.label(default = JDK_RUNTIME, providers = [JavaRuntimeInfo], cfg = "exec"),
     },
     toolchains = [config_common.toolchain_type(ANDROID_SDK_TOOLCHAIN_TYPE, mandatory = True)],
 )

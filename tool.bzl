@@ -1,7 +1,6 @@
 """Wrap separately declared producer and optional renderer tools."""
 
-load("@rules_java//java/common:java_info.bzl", "JavaInfo")
-load("@rules_java//java/common/rules:java_runtime.bzl", "JavaRuntimeInfo")
+load(":java_info.bzl", "JDK_RUNTIME", "JavaInfo", "JavaRuntimeInfo")
 
 def _cli_impl(ctx):
     wrapper = ctx.actions.declare_file(ctx.label.name + ".sh")
@@ -57,7 +56,7 @@ compose_preview_producer = rule(
     attrs = {
         "jars": attr.label_list(allow_files = [".jar"]),
         "deps": attr.label_list(providers = [JavaInfo], doc = "Producer JavaInfo targets, compiled from source or resolved from Maven; includes full runtime closure."),
-        "java_runtime": attr.label(default = "@rules_java//toolchains:remotejdk_17", providers = [JavaRuntimeInfo], cfg = "exec", doc = "Declared Java 17+ runtime; override to reuse the monorepo's existing JDK."),
+        "java_runtime": attr.label(default = JDK_RUNTIME, providers = [JavaRuntimeInfo], cfg = "exec", doc = "Declared Java 17+ runtime; override to reuse the monorepo's existing JDK."),
     },
     doc = "Declare the small offline producer distribution's lib/*.jar files and Java toolchain.",
 )

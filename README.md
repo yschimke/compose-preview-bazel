@@ -44,7 +44,19 @@ bazel build //app:ui \
   --output_groups=compose_preview_metadata,compose_preview_runtime
 ```
 
+The aspect the CLI names does not propagate. It requires
+`compose_preview_android_collector`, which walks `deps` and `exports` carrying no
+tools and flattening nothing, and then links and writes metadata once, for the
+target it is applied to. So `link.sh`, the JDK and the SDK toolchain are
+dependencies of the selected target only, never of the libraries it reaches, and
+analysis of a large graph stays linear.
+
 Requires rules_android 0.6.6 or newer and a registered Android SDK toolchain.
+`java_info.bzl` is the one place the rules load rules_java: `JavaInfo`,
+`JavaRuntimeInfo` and `JDK_RUNTIME`, the JDK the link compiles R classes with.
+Edit it, with `android_providers.bzl`, to run the rules where Java and Android
+rules live elsewhere; the labels the rules use are package-relative, so a vendored
+copy below a repository root loads unchanged.
 Assets reached through `deps` and `exports` are packed into the APK under
 `assets/`, a target's own replacing a dependency's at the same path.
 
