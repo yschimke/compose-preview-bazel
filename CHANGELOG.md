@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.9](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.8...v0.1.0-rc.9) (2026-10-15)
+
+
+### Bug Fixes
+
+* hermetic render staging, lazy metadata and runfiles-library launchers ([#18](https://github.com/yschimke/compose-preview-bazel/issues/18)) ([da2fc1f](https://github.com/yschimke/compose-preview-bazel/commit/da2fc1fa576f1d47f80eaa8b6a19505bcf7b0d6b))
+
 ## [0.1.0-rc.8](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.7...v0.1.0-rc.8) (2026-10-15)
 
 
