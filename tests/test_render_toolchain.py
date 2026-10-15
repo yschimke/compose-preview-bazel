@@ -53,7 +53,9 @@ class RenderToolchainTest(unittest.TestCase):
                 ("m2/org/jetbrains/kotlin/kotlin-stdlib/2.2.20/kotlin-stdlib-2.2.20.jar", jars[1]),
                 ("m2/androidx/annotation/annotation/1.1.0/annotation-1.1.0.jar", jars[2]),
             ]:
-                self.assertEqual(os.path.realpath(staged), os.path.realpath(source))
+                # A regular file, not a symlink: the CLI's resolver does not follow symlinks.
+                self.assertFalse(os.path.islink(staged), staged)
+                self.assertTrue(os.path.samefile(staged, source), staged)
             self.assertFalse(Path("m2/com/example").exists())
             os.chdir(ROOT)
 

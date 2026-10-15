@@ -17,9 +17,16 @@ jars="$2"
 lock="${3:-}"
 mkdir -p "$repo"
 
+# A real file, never a symlink: the CLI's resolver (okio) does not follow symlinks, so a symlinked
+# jar is not a regular file to it. A hard link to the jar costs nothing; a copy is the fallback
+# where the two sit on different filesystems.
+place() { # <jar> <destination>
+  ln -fL "$PWD/$1" "$2" 2>/dev/null || cp -fL "$PWD/$1" "$2"
+}
+
 link() { # <group path> <artifact> <version> <jar>
   mkdir -p "$repo/$1/$2/$3"
-  ln -sf "$PWD/$4" "$repo/$1/$2/$3/$2-$3.jar"
+  place "$4" "$repo/$1/$2/$3/$2-$3.jar"
 }
 
 pins="$repo/.pins"
@@ -64,9 +71,9 @@ while IFS= read -r jar; do
   dir="${jar%/*}"
   while :; do
     mkdir -p "$repo/$dir"
-    ln -sf "$PWD/$jar" "$repo/$dir/$base"
+    place "$jar" "$repo/$dir/$base"
     case "$dir" in */*/*/*) dir="${dir#*/}" ;; *) break ;; esac
   done
 done <"$jars"
 
-echo "compose_preview: staged $(find "$repo" -name '*.jar' | wc -l) Maven jar links for $(grep -c . "$jars") runtime jars and $(grep -c . "$pins") lockfile pins" >&2
+echo "compose_preview: staged $(find "$repo" -name '*.jar' | wc -l) Maven jars for $(grep -c . "$jars") runtime jars and $(grep -c . "$pins") lockfile pins" >&2
