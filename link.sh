@@ -35,6 +35,11 @@ if [ -s "$assets" ]; then
   done < "$assets"
   assets_flag="-A $work/assets"
 fi
+# The SDK's own aapt2 loads the libraries beside it, as rules_android's launcher arranges.
+if [ -d "$(dirname "$aapt2")/lib64" ]; then
+  LD_LIBRARY_PATH="$(dirname "$aapt2")/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export LD_LIBRARY_PATH
+fi
 # shellcheck disable=SC2086
 "$aapt2" link -o "$apk" --manifest "$manifest" -I "$android_jar" --auto-add-overlay \
   --no-version-vectors --java "$work/gen" $extra_flag $assets_flag $overlays

@@ -94,6 +94,16 @@ def _compile_sdk(android_jar):
             return int(digits)
     return None
 
+def _aapt2_binary(sdk):
+    # The toolchain's aapt2 is a launcher that finds the real binary (and the lib64 it loads)
+    # through its runfiles, which exist only inside Bazel. The SDK repository is local, so its own
+    # binary is always on disk; link.sh puts its lib64 on LD_LIBRARY_PATH as the launcher does.
+    root, separator, _ = sdk.android_jar.path.partition("/platforms/")
+    version = getattr(sdk, "build_tools_version", None)
+    if separator and version:
+        return root + "/build-tools/" + version + "/aapt2"
+    return sdk.aapt2.executable.path
+
 def _own_node_first(target, resources):
     nodes = resources.direct_resources_nodes.to_list()
     return [n for n in nodes if n.label == target.label] + [n for n in nodes if n.label != target.label]
@@ -180,6 +190,7 @@ def _link(ctx, target, resources, order):
             assets = staged,
             packages = [resources.package] + packages,
             aapt2 = sdk.aapt2.executable,
+            aapt2_binary = _aapt2_binary(sdk),
             java_home = java_runtime.java_home,
             java_files = java_runtime.files,
             android_jar = sdk.android_jar,
@@ -224,7 +235,7 @@ def _impl(target, ctx):
     link_inputs = linked.inputs
     android["link"] = {
         "script": ctx.file._link.path,
-        "aapt2": link_inputs.aapt2.path,
+        "aapt2": link_inputs.aapt2_binary,
         "javaHome": link_inputs.java_home,
         "androidJar": link_inputs.android_jar.path,
         "packages": link_inputs.packages,
@@ -247,7 +258,7 @@ def _impl(target, ctx):
         OutputGroupInfo(
             compose_preview_metadata = depset([metadata]),
             compose_preview_runtime = depset(
-                sources + [linked.apk, linked.manifest, ctx.file._link, link_inputs.aapt2, link_inputs.android_jar] +
+                sources + [linked.apk, linked.manifest, ctx.file._link, link_inputs.android_jar] +
                 link_inputs.compiled + link_inputs.assets.values(),
                 transitive = [runtime, runfiles, link_inputs.java_files],
             ),

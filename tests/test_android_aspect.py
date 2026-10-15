@@ -89,6 +89,9 @@ class AndroidAspectTest(unittest.TestCase):
         self.assertIn("com.example.theme", link["packages"])
         for key in ("script", "aapt2", "androidJar"):
             self.assertTrue((self.root / link[key]).is_file(), key)
+        # The SDK's real binary, which runs outside Bazel, not the toolchain's runfiles launcher.
+        self.assertIn("/build-tools/", link["aapt2"])
+        self.assertNotIn("_binary", link["aapt2"])
         self.assertTrue((self.root / link["javaHome"] / "bin/javac").exists()
                         or Path(link["javaHome"], "bin/javac").exists())
         archives = link["compiledResources"]
