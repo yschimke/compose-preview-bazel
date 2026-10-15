@@ -1,17 +1,81 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
 package(default_visibility = ["//visibility:public"])
 
+# The scripts the CLI runs outside Bazel, from paths the aspects record.
 exports_files([
-    "defs.bzl",
-    "repositories.bzl",
-    "tool.bzl",
-    "runtime.bzl",
-    "java_info.bzl",
-    "android.bzl",
-    "android_providers.bzl",
     "link.sh",
-    "render_toolchain.bzl",
     "stage_maven.sh",
 ])
 
 # compose_preview's optional render toolchain (render_toolchain.bzl).
 toolchain_type(name = "render_toolchain_type")
+
+# One bzl_library per public .bzl, for stardoc and for consumers' own bzl_library deps.
+
+bzl_library(
+    name = "android_bzl",
+    srcs = ["android.bzl"],
+    deps = [
+        ":android_providers_bzl",
+        ":java_info_bzl",
+        ":runtime_bzl",
+    ],
+)
+
+bzl_library(
+    name = "android_providers_bzl",
+    srcs = ["android_providers.bzl"],
+    deps = ["@rules_android//providers:providers_bzl"],
+)
+
+bzl_library(
+    name = "defs_bzl",
+    srcs = ["defs.bzl"],
+    deps = [
+        ":java_info_bzl",
+        ":launcher_bzl",
+        ":render_toolchain_bzl",
+        ":runtime_bzl",
+    ],
+)
+
+bzl_library(
+    name = "java_info_bzl",
+    srcs = ["java_info.bzl"],
+    # java_info.bzl also loads @rules_java//java/common/rules:java_runtime.bzl, which no public
+    # rules_java bzl_library exports, so it has no dependency here.
+    deps = ["@rules_java//java/common"],
+)
+
+bzl_library(
+    name = "launcher_bzl",
+    srcs = ["launcher.bzl"],
+    visibility = ["//visibility:private"],
+)
+
+bzl_library(
+    name = "render_toolchain_bzl",
+    srcs = ["render_toolchain.bzl"],
+    deps = [":java_info_bzl"],
+)
+
+bzl_library(
+    name = "repositories_bzl",
+    srcs = ["repositories.bzl"],
+)
+
+bzl_library(
+    name = "runtime_bzl",
+    srcs = ["runtime.bzl"],
+    deps = [":java_info_bzl"],
+)
+
+bzl_library(
+    name = "tool_bzl",
+    srcs = ["tool.bzl"],
+    deps = [
+        ":java_info_bzl",
+        ":launcher_bzl",
+    ],
+)

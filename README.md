@@ -180,7 +180,7 @@ variables into actions. Preparation is cacheable either way.
 Register a `compose_preview_render_toolchain` and the render declares every input
 instead: the CLI's daemon and renderer jars, the host's Skiko native, fonts and the
 Java runtime. The action stages them as the CLI's own sidecar and cache directories
-in a directory of its own, links the bundle's Maven dependencies (already inputs,
+in a fresh temporary directory of its own (removed when the action exits), links the bundle's Maven dependencies (already inputs,
 from rules_jvm_external) into a local Maven repository, and runs the CLI with the
 network off (`COMPOSE_PREVIEW_NO_NETWORK`, plus `COMPOSE_PREVIEW_OFFLINE` for CLIs
 that predate it), a strict environment and a pinned locale, timezone and encoding.
@@ -283,7 +283,10 @@ required rendering to prepare bundles.
 ## Verification and project setup
 
 ```sh
+buildifier -mode=check -lint=warn -r .   # CI pins v8.2.1
 python3 -m unittest discover -s tests -p 'test_*.py'
+bazel test //tests/analysis/...           # rules_testing analysis tests (Bazel 9)
+COMPOSE_PREVIEW_BAZEL_TEST=1 python3 -m unittest tests/test_analysis_aquery.py
 python3 tests/integration.py \
   --fixture /path/to/compose-ai-contrib/bazel-desktop \
   --cli-dist /path/to/tools/cli/build/install/compose-preview \

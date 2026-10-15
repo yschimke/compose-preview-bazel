@@ -4,9 +4,26 @@ module(
     compatibility_level = 1,
 )
 
+# bzl_library targets in BUILD.bazel. rules_java 9.3.0 already requires this version.
+bazel_dep(name = "bazel_skylib", version = "1.6.1")
 bazel_dep(name = "rules_java", version = "9.3.0")
+
+# The Bash runfiles library the run launchers source (launcher.bzl). Bazel 9's own bazel_tools
+# depends on this version, so it upgrades no consumer there.
+bazel_dep(name = "rules_shell", version = "0.6.1")
 
 # Only android.bzl loads rules_android. 0.6.6 is the oldest release whose
 # StarlarkAndroidResourcesInfo carries every field the Android aspect reads, so a
 # consumer's own rules_android is not upgraded by this module.
 bazel_dep(name = "rules_android", version = "0.6.6")
+
+# ===== Development only: tests/analysis (bazel test //tests/analysis/...) =====
+
+bazel_dep(name = "rules_testing", version = "0.9.0", dev_dependency = True)
+
+# rules_android 0.6.6 does not load on Bazel 9, which these tests run on; an override applies to
+# the root module only, so consumers still resolve the floor above.
+single_version_override(
+    module_name = "rules_android",
+    version = "0.8.0",
+)

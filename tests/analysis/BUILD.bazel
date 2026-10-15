@@ -1,0 +1,31 @@
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//:render_toolchain.bzl", "compose_preview_render_toolchain")
+load("//:tool.bzl", "compose_preview_cli")
+load(":compose_preview_tests.bzl", "compose_preview_test_suite")
+
+# Fixtures: analysis only, so none of these is ever built or run.
+java_library(
+    name = "module",
+    srcs = ["Module.java"],
+)
+
+sh_binary(
+    name = "producer",
+    srcs = ["tool.sh"],
+)
+
+compose_preview_cli(
+    name = "cli",
+    launcher = "tool.sh",
+)
+
+compose_preview_render_toolchain(name = "render_inputs")
+
+toolchain(
+    name = "render_toolchain",
+    toolchain = ":render_inputs",
+    toolchain_type = "//:render_toolchain_type",
+)
+
+compose_preview_test_suite(name = "compose_preview_tests")

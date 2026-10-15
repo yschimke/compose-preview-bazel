@@ -24,8 +24,30 @@ class RenderToolchainTest(unittest.TestCase):
             self.assertIn(setting, source)
 
     def test_each_render_stages_into_its_own_directory(self):
-        self.assertNotIn("_compose_preview_render", (ROOT / "render_toolchain.bzl").read_text())
-        self.assertIn('output.path + ".stage"', (ROOT / "defs.bzl").read_text())
+        source = (ROOT / "render_toolchain.bzl").read_text()
+        self.assertNotIn("_compose_preview_render", source)
+        # A fresh temporary directory, never an undeclared path beside the output.
+        self.assertIn('mktemp -d "${TMPDIR:-/tmp}/compose-preview-stage.XXXXXX"', source)
+        self.assertIn("trap 'rm -rf \\\"$stage\\\"' EXIT", source)
+        defs = (ROOT / "defs.bzl").read_text()
+        self.assertNotIn(".stage", defs)
+        # The render must not `exec`, or the trap that removes the stage never runs.
+        cacheable = re.search(r"if toolchain:(.*?)else:", defs, re.S).group(1)
+        self.assertNotIn('exec "$@"', cacheable)
+
+    def test_staged_setup_runs_and_cleans_up(self):
+        import subprocess, tempfile
+        source = (ROOT / "render_toolchain.bzl").read_text()
+        lines = re.search(r"lines = \[\n(.*?)\n    \]", source, re.S).group(1)
+        setup = [eval(line.strip().rstrip(",")) for line in lines.splitlines()
+                 if line.strip() and not line.strip().startswith("#")]
+        with tempfile.TemporaryDirectory() as tmp:
+            script = "\n".join(["set -eu"] + setup + ['mkdir -p "$stage/home"', 'echo "$stage"'])
+            result = subprocess.run(["sh", "-c", script], env={"TMPDIR": tmp, "PATH": "/usr/bin:/bin"},
+                                    check=True, capture_output=True, text=True)
+            stage = Path(result.stdout.strip())
+            self.assertEqual(Path(tmp), stage.parent)
+            self.assertFalse(stage.exists(), "the EXIT trap removes the stage")
 
     def test_maven_links_do_not_assume_a_repository_prefix(self):
         source = (ROOT / "render_toolchain.bzl").read_text()
@@ -60,9 +82,21 @@ class RenderToolchainTest(unittest.TestCase):
             os.chdir(ROOT)
 
     def test_artifacts_name_each_runtime_jars_owner(self):
+        runtime = (ROOT / "runtime.bzl").read_text()
+        self.assertIn('_json_member(args, "runtimeJarOwners", runtime, map_each = _json_owner, brackets = "{}")', runtime)
+        owner = re.search(r"def _json_owner\(file\):(.*?)\n\n", runtime, re.S).group(1)
+        self.assertIn("if not file.owner:\n        return None", owner)
+        self.assertIn('json.encode(file.path) + ":" + json.encode(str(file.owner))', owner)
+        # Every writer of artifacts metadata shares that encoding.
         for name in ("runtime.bzl", "android.bzl", "defs.bzl"):
-            self.assertIn('"runtimeJarOwners": {f.path: str(f.owner) for f in runtime_files if f.owner}',
-                          (ROOT / name).read_text(), name)
+            self.assertIn("ctx.actions.write(", (ROOT / name).read_text(), name)
+            self.assertIn("compose_preview_metadata_args(", (ROOT / name).read_text(), name)
+
+    def test_metadata_is_written_lazily(self):
+        # The runtime closure reaches the metadata as a depset through Args, not a flattened list.
+        for name in ("runtime.bzl", "android.bzl", "defs.bzl"):
+            self.assertNotIn("json.encode({", (ROOT / name).read_text(), name)
+        self.assertIn('set_param_file_format("multiline")', (ROOT / "runtime.bzl").read_text())
 
     def test_toolchain_type_is_declared(self):
         self.assertIn('toolchain_type(name = "render_toolchain_type")', (ROOT / "BUILD.bazel").read_text())

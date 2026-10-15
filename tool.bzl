@@ -1,23 +1,32 @@
 """Wrap separately declared producer and optional renderer tools."""
 
 load(":java_info.bzl", "JDK_RUNTIME", "JavaInfo", "JavaRuntimeInfo")
+load(":launcher.bzl", "RUNFILES_INIT", "RUNFILES_LIBRARY", "rlocation_path")
+
+_CLI_LAUNCHER = """\
+#!/usr/bin/env bash
+{init}
+set -euo pipefail
+runfiles_export_envvars
+if ! launcher="$(rlocation '{launcher}' '{repo}')" || [[ -z "$launcher" ]]; then
+  echo 'compose-preview: {launcher} is missing from the runfiles' >&2
+  exit 1
+fi
+exec "$launcher" "$@"
+"""
 
 def _cli_impl(ctx):
     wrapper = ctx.actions.declare_file(ctx.label.name + ".sh")
-    path = ctx.file.launcher.short_path
-    key = path[3:] if path.startswith("../") else ctx.workspace_name + "/" + path
-    ctx.actions.write(wrapper, """#!/usr/bin/env bash
-set -euo pipefail
-rf="${RUNFILES_DIR:-$0.runfiles}"
-if [[ ! -d "$rf" ]]; then
-  echo 'compose-preview CLI requires directory runfiles on a Unix host' >&2
-  exit 1
-fi
-exec "$rf/%s" "$@"
-""" % key, is_executable = True)
+    ctx.actions.write(wrapper, _CLI_LAUNCHER.format(
+        init = RUNFILES_INIT,
+        launcher = rlocation_path(ctx, ctx.file.launcher),
+        repo = ctx.label.repo_name,
+    ), is_executable = True)
     return [DefaultInfo(
         executable = wrapper,
-        runfiles = ctx.runfiles(files = ctx.files.files + [ctx.file.launcher]),
+        runfiles = ctx.runfiles(files = ctx.files.files + [ctx.file.launcher]).merge(
+            ctx.attr._runfiles_library[DefaultInfo].default_runfiles,
+        ),
     )]
 
 compose_preview_cli = rule(
@@ -26,12 +35,15 @@ compose_preview_cli = rule(
     attrs = {
         "launcher": attr.label(mandatory = True, allow_single_file = True),
         "files": attr.label_list(allow_files = True),
+        "_runfiles_library": attr.label(default = RUNFILES_LIBRARY),
     },
     doc = "Expose a staged CLI distribution; launcher is its bin/compose-preview script.",
 )
 
 # The producer runs with Bazel's declared Java runtime and classpath, without its distribution's
-# host-Java launcher or any renderer/cache environment. It is an exec tool, not a run target.
+# host-Java launcher or any renderer/cache environment. It is an exec tool, not a run target:
+# compose_preview runs it as an action's executable from the execroot, so its wrapper names the
+# JDK and jars by exec path and needs no runfiles library. `bazel run` on it is not supported.
 def _producer_impl(ctx):
     jars = depset(ctx.files.jars, transitive = [dep[JavaInfo].transitive_runtime_jars for dep in ctx.attr.deps]).to_list()
     if not jars:

@@ -27,6 +27,47 @@ jobs:
           name: rules-module
           path: build/release/*
           if-no-files-found: error
+  buildifier:
+    name: Starlark format and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install buildifier
+        env:
+          BUILDIFIER_VERSION: v8.2.1
+          BUILDIFIER_SHA256: 6ceb7b0ab7cf66fceccc56a027d21d9cc557a7f34af37d2101edb56b92fcfa1a
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/buildifier" \
+            "https://github.com/bazelbuild/buildtools/releases/download/$BUILDIFIER_VERSION/buildifier-linux-amd64"
+          echo "$BUILDIFIER_SHA256  $RUNNER_TEMP/buildifier" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/buildifier"
+      # Fix locally with `buildifier -lint=fix -r .`.
+      - name: Check formatting and lint
+        run: '"$RUNNER_TEMP/buildifier" -mode=check -lint=warn -r .'
+  analysis:
+    name: Analysis tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: bazel-contrib/setup-bazel@8cb04a772ab4c1eb984e9c1b493a182e96c5e425 # v0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: true
+          repository-cache: true
+      # rules_testing analysis tests in this module's own workspace, then the render actions'
+      # execution requirements, which Starlark cannot see, read back with aquery.
+      - name: Run the analysis tests
+        env:
+          COMPOSE_PREVIEW_BAZEL_TEST: "1"
+        run: |
+          bazel test //tests/analysis/...
+          python3 -m unittest -v tests/test_analysis_aquery.py
   android-aspect:
     name: Android aspect
     runs-on: ubuntu-latest
