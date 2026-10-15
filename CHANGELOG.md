@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0-rc.7](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.6...v0.1.0-rc.7) (2026-10-15)
+
+
+### Features
+
+* a render toolchain makes compose_preview renders cacheable and remote-executable ([#12](https://github.com/yschimke/compose-preview-bazel/issues/12)) ([ff1d5b7](https://github.com/yschimke/compose-preview-bazel/commit/ff1d5b7376cf1ba3979f9c66ed2b448c9cb1f862))
+
+
+### Bug Fixes
+
+* stage render jars by the lockfile's pins, not their path ([#15](https://github.com/yschimke/compose-preview-bazel/issues/15)) ([851202d](https://github.com/yschimke/compose-preview-bazel/commit/851202db8e8d0b0edb89466149ce0246905ef43a))
+* stage rules_jvm_external 6+ jars for the render toolchain ([#14](https://github.com/yschimke/compose-preview-bazel/issues/14)) ([25c1653](https://github.com/yschimke/compose-preview-bazel/commit/25c1653b4b9b6d99898a5984df6493e2ffb8ed48))
+
 ## [0.1.0-rc.6](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.5...v0.1.0-rc.6) (2026-10-15)
 
 
