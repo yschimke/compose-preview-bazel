@@ -9,4 +9,8 @@ exports_files([
     "android.bzl",
     "android_providers.bzl",
     "link.sh",
+    "render_toolchain.bzl",
 ])
+
+# compose_preview's optional render toolchain (render_toolchain.bzl).
+toolchain_type(name = "render_toolchain_type")
