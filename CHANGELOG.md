@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.8](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.7...v0.1.0-rc.8) (2026-10-15)
+
+
+### Features
+
+* artifacts name the target that produced each runtime jar ([#16](https://github.com/yschimke/compose-preview-bazel/issues/16)) ([82ec678](https://github.com/yschimke/compose-preview-bazel/commit/82ec6784827d85617cda54d39fe199ac83eb6f55))
+
 ## [0.1.0-rc.7](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.6...v0.1.0-rc.7) (2026-10-15)
 
 
