@@ -125,6 +125,13 @@ class RenderToolchainTest(unittest.TestCase):
         self.assertIn("required_providers = [AndroidIdeInfo]", aspect)
         self.assertIn("aspects = [compose_preview_android_module_aspect]", (ROOT / "defs.bzl").read_text())
 
+    def test_render_resolves_recorded_coordinates_from_its_own_jars(self):
+        defs = (ROOT / "defs.bzl").read_text()
+        cacheable = re.search(r"if toolchain:(.*?)else:", defs, re.S).group(1)
+        # By content, from the runtime jars the action already declares; never a host cache.
+        self.assertIn('render_args.add_all(["--local-jars", jars])', cacheable)
+        self.assertIn("-Duser.home=$stage/home", (ROOT / "render_toolchain.bzl").read_text())
+
     def test_toolchain_type_is_declared(self):
         self.assertIn('toolchain_type(name = "render_toolchain_type")', (ROOT / "BUILD.bazel").read_text())
 

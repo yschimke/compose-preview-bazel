@@ -166,6 +166,13 @@ def _impl(ctx):
             jar_list = ctx.actions.args()
             jar_list.add_all(runtime_jars)
             ctx.actions.write(jars, jar_list)
+
+            # The bundle records, per runtime jar, the coordinate the producer identified and the
+            # jar's content hash; the CLI resolves each such coordinate to the very jar with that
+            # hash in this list, so no coordinate depends on how stage_maven.sh lays out a guess.
+            # A CLI that predates the flag warns and ignores it, and falls back to the staged
+            # repository below.
+            render_args.add_all(["--local-jars", jars])
             declared, setup = render_inputs(
                 toolchain.compose_preview_render,
                 jars,

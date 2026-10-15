@@ -227,10 +227,19 @@ variables into actions. Preparation is cacheable either way.
 Register a `compose_preview_render_toolchain` and the render declares every input
 instead: the CLI's daemon and renderer jars, the host's Skiko native, fonts and the
 Java runtime. The action stages them as the CLI's own sidecar and cache directories
-in a fresh temporary directory of its own (removed when the action exits), links the bundle's Maven dependencies (already inputs,
-from rules_jvm_external) into a local Maven repository, and runs the CLI with the
-network off (`COMPOSE_PREVIEW_NO_NETWORK`, plus `COMPOSE_PREVIEW_OFFLINE` for CLIs
-that predate it), a strict environment and a pinned locale, timezone and encoding.
+in a fresh temporary directory of its own (removed when the action exits), and runs
+the CLI with the network off (`COMPOSE_PREVIEW_NO_NETWORK`, plus
+`COMPOSE_PREVIEW_OFFLINE` for CLIs that predate it), a strict environment, its own
+`user.home` and a pinned locale, timezone and encoding.
+
+The bundle's Maven dependencies are already inputs: the module's runtime jars. The
+prepared bundle records, for each one it travels as a coordinate, the SHA-256 of
+the jar the producer identified (`dependency-resolution.json`), and the render
+passes the runtime jar list as `bundle render --local-jars`, so each coordinate
+resolves to the jar with that content: a stamped `processed_` jar, rules_kotlin's
+unversioned `kotlin-stdlib.jar` or an AAR's classes jar alike, whatever the
+lockfile pins. The jars are also laid out as a local Maven repository, for CLIs
+that predate `--local-jars`.
 It drops `local`/`no-cache`/`no-remote`, so renders are cached and can run remotely.
 
 ```starlark

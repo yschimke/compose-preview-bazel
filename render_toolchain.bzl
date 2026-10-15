@@ -93,8 +93,9 @@ def render_inputs(info, maven_jars = None, stage_maven = None, lockfile = None, 
     Args:
       info: the registered toolchain's ComposePreviewRenderInfo.
       maven_jars: File listing the bundle's runtime jars, one execroot path per line, or None.
-        They are laid out as a local Maven repository (stage_maven.sh), so the bundle's Maven
-        coordinates resolve without a fetch.
+        The caller passes it to the CLI as `--local-jars`, which resolves each coordinate the
+        bundle records to the listed jar with the recorded content hash. They are also laid out as
+        a local Maven repository (stage_maven.sh), for CLIs that predate `--local-jars`.
       stage_maven: the stage_maven.sh File; required with maven_jars.
       lockfile: the rules_jvm_external lockfile the bundle's coordinates came from, or None. Jars
         are matched to its pins by file name, which holds wherever the jar is kept.
@@ -139,6 +140,9 @@ def render_inputs(info, maven_jars = None, stage_maven = None, lockfile = None, 
     options = [
         "-Dcomposeai.network=off",
         "-Dmaven.repo.local=$stage/m2",
+        # The JVM takes user.home from the password database, not $HOME, so without this the
+        # CLI's resolver would search the host's ~/.m2 and ~/.gradle caches.
+        "-Duser.home=$stage/home",
     ]
     if android:
         options += [

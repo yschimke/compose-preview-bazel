@@ -122,6 +122,9 @@ def _android_render_with_android_toolchain_is_cacheable_impl(env, target):
     argv.contains_at_least(["--android-sdk", "36", "--clock-packages", "com.example.ui."])
     argv.contains_predicate(matching.str_endswith("android-36/android.jar"))
 
+    # The recorded coordinates resolve from the module's own runtime jars, by content.
+    argv.contains("--local-jars")
+
     # Only the Android inputs are staged; the Desktop daemon is not an input of this action.
     inputs = [f.short_path for f in action.inputs.to_list()]
     env.expect.that_collection(inputs).contains_predicate(matching.str_endswith("android/0000-daemon.jar"))
@@ -140,7 +143,11 @@ def _android_render_is_local_impl(env, target):
     mnemonics = env.expect.that_collection(_mnemonics(target))
     mnemonics.contains("ComposePreviewLocalRender")
     mnemonics.not_contains("ComposePreviewRender")
-    env.expect.that_collection(_render_action(env, target).argv).contains_at_least(["--android-sdk", "36"])
+    argv = env.expect.that_collection(_render_action(env, target).argv)
+    argv.contains_at_least(["--android-sdk", "36"])
+
+    # The local render declares no runtime jars, so it names none.
+    argv.not_contains("--local-jars")
 
 def _test_android_app_clock_can_be_turned_off(name):
     _android_test(name, _android_app_clock_off_impl, [_ANDROID_RENDER], pin_app_clock = False)
