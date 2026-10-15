@@ -1,0 +1,2 @@
+# A separate Bazel workspace (its own MODULE.bazel), built by tests/test_android_aspect.py.
+tests/android_aspect

@@ -285,6 +285,8 @@ required rendering to prepare bundles.
 ```sh
 buildifier -mode=check -lint=warn -r .   # CI pins v8.2.1
 python3 -m unittest discover -s tests -p 'test_*.py'
+bazel test //tests/analysis/...           # rules_testing analysis tests (Bazel 9)
+COMPOSE_PREVIEW_BAZEL_TEST=1 python3 -m unittest tests/test_analysis_aquery.py
 python3 tests/integration.py \
   --fixture /path/to/compose-ai-contrib/bazel-desktop \
   --cli-dist /path/to/tools/cli/build/install/compose-preview \
