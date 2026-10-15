@@ -71,13 +71,13 @@ def _impl(ctx):
             ctx.actions.write(jars, jar_list)
             declared, setup = render_inputs(
                 toolchain.compose_preview_render,
-                output.path + ".stage",
                 jars,
                 ctx.file._stage_maven,
                 ctx.file.maven_install,
             )
             ctx.actions.run_shell(
-                command = "\n".join(["set -eu"] + setup + ['exec "$@" >&2']),
+                # Not `exec`: the shell stays to run setup's EXIT trap, which removes the stage.
+                command = "\n".join(["set -eu"] + setup + ['"$@" >&2']),
                 tools = [ctx.attr.cli[DefaultInfo].files_to_run],
                 inputs = depset(
                     [bundle],

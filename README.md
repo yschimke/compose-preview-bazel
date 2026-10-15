@@ -180,7 +180,7 @@ variables into actions. Preparation is cacheable either way.
 Register a `compose_preview_render_toolchain` and the render declares every input
 instead: the CLI's daemon and renderer jars, the host's Skiko native, fonts and the
 Java runtime. The action stages them as the CLI's own sidecar and cache directories
-in a directory of its own, links the bundle's Maven dependencies (already inputs,
+in a fresh temporary directory of its own (removed when the action exits), links the bundle's Maven dependencies (already inputs,
 from rules_jvm_external) into a local Maven repository, and runs the CLI with the
 network off (`COMPOSE_PREVIEW_NO_NETWORK`, plus `COMPOSE_PREVIEW_OFFLINE` for CLIs
 that predate it), a strict environment and a pinned locale, timezone and encoding.

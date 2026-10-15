@@ -59,13 +59,11 @@ compose_preview_render_toolchain = rule(
 
 RENDER_TOOLCHAIN_TYPE = Label(":render_toolchain_type")
 
-def render_inputs(info, stage, maven_jars = None, stage_maven = None, lockfile = None):
+def render_inputs(info, maven_jars = None, stage_maven = None, lockfile = None):
     """The render's declared inputs, and the shell that stages them and points the CLI at them.
 
     Args:
       info: the registered toolchain's ComposePreviewRenderInfo.
-      stage: execroot-relative directory this action alone stages into (next to its output), so
-        concurrent renders under a shared execroot never touch each other's inputs.
       maven_jars: File listing the bundle's runtime jars, one execroot path per line, or None.
         They are laid out as a local Maven repository (stage_maven.sh), so the bundle's Maven
         coordinates resolve without a fetch.
@@ -75,9 +73,10 @@ def render_inputs(info, stage, maven_jars = None, stage_maven = None, lockfile =
 
     Returns:
       (inputs depset, setup shell lines). The lines run in the action's working directory, lay
-      the inputs out as the CLI's own cache and sidecar directories under [stage], and export
-      the environment that makes the CLI read them, refuse any fetch, and render the same on
-      every worker.
+      the inputs out as the CLI's own cache and sidecar directories under a fresh temporary
+      directory, and export the environment that makes the CLI read them, refuse any fetch, and
+      render the same on every worker. That directory is not a declared output: an EXIT trap
+      removes it, so the caller must run its command as a child of the shell, not `exec` it.
     """
     groups = [
         ("lib-daemon-desktop", info.desktop_daemon),
@@ -86,8 +85,10 @@ def render_inputs(info, stage, maven_jars = None, stage_maven = None, lockfile =
         ("cache/composeai/fonts", info.fonts),
     ]
     lines = [
-        'stage="$PWD/%s"' % stage,
-        'rm -rf "$stage"',
+        # Private to this action, so concurrent renders never touch each other's inputs, and
+        # never inside the output tree, where only declared outputs may be written.
+        'stage="$(mktemp -d "${TMPDIR:-/tmp}/compose-preview-stage.XXXXXX")"',
+        "trap 'rm -rf \"$stage\"' EXIT",
     ]
     for name, files in groups:
         lines.append('mkdir -p "$stage/%s"' % name)
