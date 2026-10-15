@@ -65,7 +65,13 @@ def _impl(ctx):
             jar_list = ctx.actions.args()
             jar_list.add_all(ctx.attr.module[JavaInfo].transitive_runtime_jars)
             ctx.actions.write(jars, jar_list)
-            declared, setup = render_inputs(toolchain.compose_preview_render, output.path + ".stage", jars)
+            declared, setup = render_inputs(
+                toolchain.compose_preview_render,
+                output.path + ".stage",
+                jars,
+                ctx.file._stage_maven,
+                ctx.file.maven_install,
+            )
             ctx.actions.run_shell(
                 command = "\n".join(["set -eu"] + setup + ['exec "$@" >&2']),
                 tools = [ctx.attr.cli[DefaultInfo].files_to_run],
@@ -161,6 +167,7 @@ compose_preview = rule(
     executable = True,
     attrs = {
         "maven_install": attr.label(allow_single_file = [".json"]),
+        "_stage_maven": attr.label(default = Label(":stage_maven.sh"), allow_single_file = True),
         "module": attr.label(mandatory = True, providers = [JavaInfo]),
         "producer": attr.label(mandatory = True, executable = True, cfg = "exec"),
         "cli": attr.label(executable = True, cfg = "exec", doc = "Optional renderer CLI; omit for source-bundle-only preparation."),

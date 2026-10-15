@@ -30,7 +30,32 @@ class RenderToolchainTest(unittest.TestCase):
     def test_maven_links_do_not_assume_a_repository_prefix(self):
         source = (ROOT / "render_toolchain.bzl").read_text()
         self.assertNotIn("*/v1/", source)
-        self.assertIn("processed_", source)
+        self.assertIn("processed_", (ROOT / "stage_maven.sh").read_text())
+
+    def test_maven_staging_matches_lockfile_pins_wherever_the_jar_is_kept(self):
+        import os, subprocess, tempfile
+        with tempfile.TemporaryDirectory() as work:
+            os.chdir(work)
+            jars = ["bin/external/rules_jvm_external++maven+maven/processed_ui-desktop-1.11.1.jar",
+                    "external/rules_kotlin/kotlin-stdlib.jar",
+                    "x/v1/https/h/maven2/androidx/annotation/annotation/1.1.0/annotation-1.1.0.jar"]
+            for jar in jars:
+                Path(jar).parent.mkdir(parents=True, exist_ok=True)
+                Path(jar).touch()
+            Path("jars.txt").write_text("\n".join(jars) + "\n")
+            Path("lock.json").write_text(
+                '{"artifacts": {"org.jetbrains.compose.ui:ui-desktop": {"shasums": {"jar": "ab", "sources": null}, "version": "1.11.1"},'
+                ' "org.jetbrains.kotlin:kotlin-stdlib": {"version": "2.2.20"},'
+                ' "com.example:with-classifier:jar:natives": {"version": "1"}}, "version": "2"}')
+            subprocess.run(["sh", str(ROOT / "stage_maven.sh"), "m2", "jars.txt", "lock.json"], check=True)
+            for staged, source in [
+                ("m2/org/jetbrains/compose/ui/ui-desktop/1.11.1/ui-desktop-1.11.1.jar", jars[0]),
+                ("m2/org/jetbrains/kotlin/kotlin-stdlib/2.2.20/kotlin-stdlib-2.2.20.jar", jars[1]),
+                ("m2/androidx/annotation/annotation/1.1.0/annotation-1.1.0.jar", jars[2]),
+            ]:
+                self.assertEqual(os.path.realpath(staged), os.path.realpath(source))
+            self.assertFalse(Path("m2/com/example").exists())
+            os.chdir(ROOT)
 
     def test_toolchain_type_is_declared(self):
         self.assertIn('toolchain_type(name = "render_toolchain_type")', (ROOT / "BUILD.bazel").read_text())

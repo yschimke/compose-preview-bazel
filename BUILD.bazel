@@ -10,6 +10,7 @@ exports_files([
     "android_providers.bzl",
     "link.sh",
     "render_toolchain.bzl",
+    "stage_maven.sh",
 ])
 
 # compose_preview's optional render toolchain (render_toolchain.bzl).
