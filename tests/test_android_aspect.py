@@ -31,13 +31,14 @@ class AndroidAspectTest(unittest.TestCase):
     def setUpClass(cls):
         events = WORKSPACE / "bazel-bep.json"
         subprocess.run(
-            [bazel(), "build", "//ui", f"--aspects={ASPECT}",
+            [bazel(), "build", "//ui", "//feature", f"--aspects={ASPECT}",
              "--output_groups=compose_preview_metadata,compose_preview_runtime",
              f"--build_event_json_file={events}"],
             cwd=WORKSPACE, check=True)
         cls.root = Path(subprocess.run([bazel(), "info", "execution_root"], cwd=WORKSPACE,
                                        check=True, capture_output=True, text=True).stdout.strip())
         cls.metadata = json.loads((WORKSPACE / "bazel-bin/ui/ui.compose-preview.json").read_text())
+        cls.feature = json.loads((WORKSPACE / "bazel-bin/feature/feature.compose-preview.json").read_text())
 
     def test_schema_2_with_android_block(self):
         self.assertEqual(2, self.metadata["schemaVersion"])
@@ -81,6 +82,57 @@ class AndroidAspectTest(unittest.TestCase):
             self.assertIn("assets/nested/ui-only.txt", names)
             # The target's own asset replaces a dependency's at the same path.
             self.assertEqual(b"ui", archive.read("assets/shared.txt"))
+
+    def test_link_inputs_are_recorded_and_materialized(self):
+        link = self.metadata["android"]["link"]
+        self.assertEqual("com.example.ui", link["packages"][0])
+        self.assertIn("com.example.theme", link["packages"])
+        for key in ("script", "aapt2", "androidJar"):
+            self.assertTrue((self.root / link[key]).is_file(), key)
+        # The SDK's real binary, which runs outside Bazel, not the toolchain's runfiles launcher.
+        self.assertIn("/build-tools/", link["aapt2"])
+        self.assertNotIn("_binary", link["aapt2"])
+        self.assertTrue((self.root / link["javaHome"] / "bin/javac").exists()
+                        or Path(link["javaHome"], "bin/javac").exists())
+        archives = link["compiledResources"]
+        self.assertTrue(archives and all((self.root / a).is_file() for a in archives), archives)
+        # Overlay order: the theme's archive before the target's own.
+        self.assertLess(next(i for i, a in enumerate(archives) if "/theme/" in a),
+                        next(i for i, a in enumerate(archives) if "/ui/" in a))
+        self.assertIn("theme-only.txt", {a["path"] for a in link["assets"]})
+
+    def test_one_link_over_two_libraries_renders_both(self):
+        # What the CLI does for a selection: one link.sh run over the union of the targets' inputs.
+        targets = [self.metadata["android"]["link"], self.feature["android"]["link"]]
+        archives, packages, assets = [], [], {}
+        for link in targets:
+            archives += [a for a in link["compiledResources"] if a not in archives]
+            packages += [p for p in link["packages"] if p not in packages]
+            for asset in link["assets"]:
+                assets[asset["path"]] = asset["file"]
+        out = WORKSPACE / "bazel-merged"
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir()
+        manifest = out / "AndroidManifest.xml"
+        manifest.write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" '
+                            f'package="{packages[0]}"><application/></manifest>')
+        listing = out / "assets.txt"
+        listing.write_text("".join(f"{f}\t{p}\n" for p, f in assets.items()))
+        link = targets[0]
+        subprocess.run(["/bin/sh", link["script"], link["aapt2"], link["javaHome"], str(out / "merged.ap_"),
+                        str(out / "r-merged.jar"), str(manifest), link["androidJar"], ":".join(packages[1:]),
+                        str(listing), *archives], cwd=self.root, check=True)
+        with zipfile.ZipFile(out / "merged.ap_") as archive:
+            names = set(archive.namelist())
+            table = archive.read("resources.arsc")
+        for value in (b"greeting", b"feature_title", b"brand", b"Hello from Bazel", b"Feature from Bazel"):
+            self.assertIn(value, table)
+        self.assertNotIn(b"Theme greeting", table)
+        self.assertTrue({"assets/theme-only.txt", "assets/nested/ui-only.txt", "assets/feature-only.txt"} <= names)
+        with zipfile.ZipFile(out / "r-merged.jar") as jar:
+            classes = set(jar.namelist())
+        for package in ("com/example/ui", "com/example/feature", "com/example/theme"):
+            self.assertIn(f"{package}/R$string.class", classes)
 
 
 if __name__ == "__main__":

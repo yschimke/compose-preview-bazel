@@ -17,6 +17,7 @@ class PackageTest(unittest.TestCase):
             source.mkdir()
             (source / "MODULE.bazel").write_text('module(name="rules_compose_preview", version="0.1.0-rc.1")\n')
             (source / "defs.bzl").write_text('# rules\n')
+            (source / "link.sh").write_text('#!/bin/sh\n')
             (source / "README.md").write_text('# README\n')
             for name in (".git", "build", "__pycache__"):
                 (source / name).mkdir()
@@ -28,7 +29,7 @@ class PackageTest(unittest.TestCase):
             self.assertEqual(first.name, "rules_compose_preview-0.1.0-rc.1.tar.gz")
             self.assertTrue(first.with_name(first.name + ".sha256").exists())
             with tarfile.open(first) as archive:
-                self.assertEqual({Path(p).name for p in archive.getnames()}, {"MODULE.bazel", "defs.bzl", "README.md"})
+                self.assertEqual({Path(p).name for p in archive.getnames()}, {"MODULE.bazel", "defs.bzl", "link.sh", "README.md"})
                 self.assertTrue(all(p.uid == 0 and p.mtime == 0 for p in archive.getmembers()))
 
 
