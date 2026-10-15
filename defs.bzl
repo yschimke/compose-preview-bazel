@@ -173,7 +173,10 @@ def _impl(ctx):
             name = ctx.label.name,
             repo = ctx.label.repo_name,
         ), is_executable = True)
-        runfiles = runfiles.merge(ctx.attr.cli[DefaultInfo].default_runfiles)
+        runfiles = runfiles.merge_all([
+            ctx.runfiles(files = [ctx.executable.cli]),
+            ctx.attr.cli[DefaultInfo].default_runfiles,
+        ])
     else:
         ctx.actions.write(launcher, _SOURCE_ONLY_LAUNCHER.format(
             init = RUNFILES_INIT,
