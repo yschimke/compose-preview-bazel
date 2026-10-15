@@ -59,7 +59,7 @@ compose_preview_render_toolchain = rule(
 
 RENDER_TOOLCHAIN_TYPE = Label(":render_toolchain_type")
 
-def render_inputs(info, stage, maven_jars = None):
+def render_inputs(info, stage, maven_jars = None, stage_maven = None, lockfile = None):
     """The render's declared inputs, and the shell that stages them and points the CLI at them.
 
     Args:
@@ -67,9 +67,11 @@ def render_inputs(info, stage, maven_jars = None):
       stage: execroot-relative directory this action alone stages into (next to its output), so
         concurrent renders under a shared execroot never touch each other's inputs.
       maven_jars: File listing the bundle's runtime jars, one execroot path per line, or None.
-        Each is linked into a local Maven repository under every trailing
-        `<group>/<artifact>/<version>/<file>` its path could be, so the bundle's Maven coordinates
-        resolve without a fetch whatever prefix rules_jvm_external stores them under.
+        They are laid out as a local Maven repository (stage_maven.sh), so the bundle's Maven
+        coordinates resolve without a fetch.
+      stage_maven: the stage_maven.sh File; required with maven_jars.
+      lockfile: the rules_jvm_external lockfile the bundle's coordinates came from, or None. Jars
+        are matched to its pins by file name, which holds wherever the jar is kept.
 
     Returns:
       (inputs depset, setup shell lines). The lines run in the action's working directory, lay
@@ -92,24 +94,11 @@ def render_inputs(info, stage, maven_jars = None):
         for f in files.to_list():
             lines.append('ln -sf "$PWD/%s" "$stage/%s/%s"' % (f.path, name, f.basename))
     if maven_jars:
-        # rules_jvm_external keeps each jar at <prefix>/<group>/<artifact>/<version>/<file>; the
-        # prefix differs by version (`v1/<scheme>/<host>/` before 6.0, the repository's own
-        # directory since), and jvm_import stamps the file as processed_<file>. The prefix is
-        # unknown, so link every suffix that still holds a group, artifact, version and file; the
-        # resolver finds the one that fits and ignores the rest.
-        lines += [
-            'mkdir -p "$stage/m2"',
-            "while IFS= read -r jar; do",
-            '  case "$jar" in */*/*/*/*) ;; *) continue ;; esac',
-            '  base="${jar##*/}"; base="${base#processed_}"; dir="${jar%/*}"',
-            "  while :; do",
-            '    mkdir -p "$stage/m2/$dir"',
-            '    ln -sf "$PWD/$jar" "$stage/m2/$dir/$base"',
-            '    case "$dir" in */*/*/*) dir="${dir#*/}" ;; *) break ;; esac',
-            "  done",
-            'done < "%s"' % maven_jars.path,
-            'echo "compose_preview: linked $(wc -l < "%s") runtime jars into $stage/m2, e.g. $(head -n 1 "%s")" >&2' % (maven_jars.path, maven_jars.path),
-        ]
+        lines.append('sh "%s" "$stage/m2" "%s"%s' % (
+            stage_maven.path,
+            maven_jars.path,
+            ' "%s"' % lockfile.path if lockfile else "",
+        ))
     options = [
         "-Dcomposeai.network=off",
         "-Dmaven.repo.local=$stage/m2",
@@ -137,5 +126,5 @@ def render_inputs(info, stage, maven_jars = None):
         'export JAVA_OPTS="%s"' % " ".join(options),
     ]
     inputs = [info.java_runtime.files] + [files for _, files in groups]
-    direct = [maven_jars] if maven_jars else []
+    direct = [f for f in [maven_jars, stage_maven, lockfile] if f]
     return depset(direct, transitive = inputs), lines
