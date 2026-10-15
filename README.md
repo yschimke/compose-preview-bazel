@@ -150,8 +150,8 @@ One target exposes three products:
 | Group | Product | Execution |
 | --- | --- | --- |
 | `bundle` | `ui-preview.bundle.png`, runnable PNG/ZIP with a one-pixel stub cover | Offline preparation with normal Bazel caching |
-| `png` | `ui-preview.renders/`, `<preview-id>.png` files | Existing CLI bundle renderer, local and uncached |
-| `rendered_bundle` | `ui-preview.rendered-bundle.png`, actual cover and baked previews | Local render followed by cacheable offline packaging |
+| `png` | `ui-preview.renders/`, `<preview-id>.png` files | Existing CLI bundle renderer: local and uncached, or cacheable with a [render toolchain](#cacheable-rendering-a-render-toolchain) |
+| `rendered_bundle` | `ui-preview.rendered-bundle.png`, actual cover and baked previews | The render followed by cacheable offline packaging |
 
 Bundle-only builds and the default `run` prerequisites do not render. Preparation
 uses declared compiled project/runtime JARs, sources, Maven lockfile, producer
@@ -169,11 +169,53 @@ or `--output`. A PNG file output requires one selected preview. Rendering uses t
 existing CLI bundle path, so Maven dependencies resolve from local caches or
 Central/Google Maven. Rendering requires a local Unix host and Java 17+.
 
-Render actions are deliberately local, uncached and non-remote while the CLI
-provisions renderer/native libraries and uses host fonts. `env` and
-`--action_env=JAVA_HOME --action_env=XDG_CACHE_HOME` apply only to local rendering.
-Do not pass credential-bearing environment variables into actions. Preparation
-is cacheable; hermetic rendering is a separate future toolchain project.
+Without a render toolchain, render actions are deliberately local, uncached and
+non-remote: the CLI provisions renderer/native libraries into the host cache and
+uses host fonts. `env` and `--action_env=JAVA_HOME --action_env=XDG_CACHE_HOME`
+apply only to that local rendering. Do not pass credential-bearing environment
+variables into actions. Preparation is cacheable either way.
+
+### Cacheable rendering: a render toolchain
+
+Register a `compose_preview_render_toolchain` and the render declares every input
+instead: the CLI's daemon and renderer jars, the host's Skiko native, fonts,
+`android-all-instrumented` jars and `android.jar` for Android, and the Java runtime.
+The action stages them as the CLI's own sidecar and cache directories, links the
+bundle's Maven dependencies (already inputs, from rules_jvm_external) into a local
+Maven repository, and runs the CLI with the network off
+(`COMPOSE_PREVIEW_NO_NETWORK`, plus `COMPOSE_PREVIEW_OFFLINE` for CLIs that predate
+it) and a strict environment. It drops `local`/`no-cache`/`no-remote`, so renders
+are cached and can run remotely.
+
+```starlark
+load("@rules_compose_preview//:render_toolchain.bzl", "compose_preview_render_toolchain")
+
+compose_preview_render_toolchain(
+    name = "render_inputs",
+    desktop_daemon = ["@compose_preview_sidecars//:lib-daemon-desktop"],
+    renderer = ["@compose_preview_sidecars//:lib-renderer"],
+    skiko = ["@skiko_awt_runtime_linux_x64//file"],
+    fonts = glob(["fonts/**"]),
+    # Android: android_daemon, android_renderer, robolectric_deps, android_jar, android_api.
+)
+
+toolchain(
+    name = "render_toolchain",
+    toolchain = ":render_inputs",
+    toolchain_type = "@rules_compose_preview//:render_toolchain_type",
+)
+```
+
+Then `register_toolchains("//:render_toolchain")` in `MODULE.bazel`, or
+`--extra_toolchains=//:render_toolchain`. Point each attribute at the released
+artifacts the CLI would otherwise download, pinned by checksum (`http_file`,
+`http_archive`, `maven_install`) or vendored; `compose-preview provision` fetches
+them once into a directory you can import. Robolectric and the
+`android-all-instrumented` jars must come from the Robolectric build the Android
+daemon was built against: jars instrumented by another Robolectric break the
+sandbox without failing loudly. The external-consumer CI job registers a toolchain
+from the files a CLI render provisioned, checks the image matches the CLI's
+byte-for-byte, and checks a rebuild after `bazel clean` is served from the cache.
 
 Coordinates are preferred even for transformed Bazel JARs. Recovery considers
 lockfile paths/names, Maven layout, pom.properties, manifest versions and the

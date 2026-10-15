@@ -1,6 +1,7 @@
 """Offline cached preparation plus optional local rendering through compose-preview."""
 
 load(":java_info.bzl", "JavaInfo")
+load(":render_toolchain.bzl", "RENDER_TOOLCHAIN_TYPE", "render_inputs")
 
 def _key(ctx, file):
     path = file.short_path
@@ -56,18 +57,44 @@ def _impl(ctx):
         output = ctx.actions.declare_directory(ctx.label.name + ".renders")
         render_args = ctx.actions.args()
         render_args.add_all([ctx.executable.cli.path, "bundle", "render", bundle.path, "--output", output.path])
-        ctx.actions.run_shell(
-            command = 'exec "$@" >&2',
-            tools = [ctx.attr.cli[DefaultInfo].files_to_run],
-            inputs = [bundle],
-            outputs = [output],
-            arguments = [render_args],
-            env = ctx.attr.env,
-            use_default_shell_env = True,
-            execution_requirements = {"local": "1", "no-cache": "1", "no-remote": "1"},
-            mnemonic = "ComposePreviewLocalRender",
-            progress_message = "Rendering prepared Desktop previews for %{label}",
-        )
+        toolchain = ctx.toolchains[RENDER_TOOLCHAIN_TYPE]
+        if toolchain:
+            # Every input declared: the render reads only staged files, with the network off, so
+            # it can be cached and run remotely like any other action.
+            jars = ctx.actions.declare_file(ctx.label.name + ".render-jars.txt")
+            jar_list = ctx.actions.args()
+            jar_list.add_all(ctx.attr.module[JavaInfo].transitive_runtime_jars)
+            ctx.actions.write(jars, jar_list)
+            declared, setup = render_inputs(toolchain.compose_preview_render, jars)
+            ctx.actions.run_shell(
+                command = "\n".join(["set -eu"] + setup + ['exec "$@" >&2']),
+                tools = [ctx.attr.cli[DefaultInfo].files_to_run],
+                inputs = depset(
+                    [bundle],
+                    transitive = [declared, ctx.attr.module[JavaInfo].transitive_runtime_jars],
+                ),
+                outputs = [output],
+                arguments = [render_args],
+                env = ctx.attr.env,
+                toolchain = RENDER_TOOLCHAIN_TYPE,
+                mnemonic = "ComposePreviewRender",
+                progress_message = "Rendering prepared Desktop previews for %{label}",
+            )
+        else:
+            # No render toolchain: the CLI provisions its inputs into the host cache at run time,
+            # so the action can be neither cached nor run remotely.
+            ctx.actions.run_shell(
+                command = 'exec "$@" >&2',
+                tools = [ctx.attr.cli[DefaultInfo].files_to_run],
+                inputs = [bundle],
+                outputs = [output],
+                arguments = [render_args],
+                env = ctx.attr.env,
+                use_default_shell_env = True,
+                execution_requirements = {"local": "1", "no-cache": "1", "no-remote": "1"},
+                mnemonic = "ComposePreviewLocalRender",
+                progress_message = "Rendering prepared Desktop previews for %{label}",
+            )
         rendered = ctx.actions.declare_file(ctx.label.name + ".rendered-bundle.png")
         bake_args = ctx.actions.args()
         bake_args.add_all(["--bundle", bundle.path, "--renders", output.path, "--output", rendered.path])
@@ -142,5 +169,7 @@ compose_preview = rule(
         "outputs": attr.string_list(default = ["bundle"], doc = "Default products: bundle, png and/or rendered_bundle."),
         "env": attr.string_dict(doc = "Local rendering environment only; preparation does not inherit it."),
     },
-    doc = "One target: cacheable offline bundle preparation, optional local rendering and baked packaging.",
+    # Optional: with a registered render toolchain the render is cacheable and remote-executable.
+    toolchains = [config_common.toolchain_type(RENDER_TOOLCHAIN_TYPE, mandatory = False)],
+    doc = "One target: cacheable offline bundle preparation, optional rendering (cacheable with a render toolchain) and baked packaging.",
 )

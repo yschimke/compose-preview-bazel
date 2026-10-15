@@ -43,6 +43,79 @@ def copy_evidence(source, destination):
     shutil.copyfile(source, destination)
 
 
+def execution_log(path):
+    """The SpawnExec entries of an --execution_log_json_file (concatenated JSON objects)."""
+    text, decoder, entries, index = path.read_text(), json.JSONDecoder(), [], 0
+    while True:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            return entries
+        entry, index = decoder.raw_decode(text, index)
+        entries.append(entry)
+
+
+def render_inputs(args):
+    """The sidecar jars, Skiko native and fonts the CLI-first render above provisioned."""
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "composeai"
+    roots = [args.cli_dist.resolve(), cache]
+
+    def sidecar(name):
+        for root in roots:
+            for directory in [root / name, *sorted(root.rglob(name))]:
+                jars = sorted(p for p in directory.glob("*.jar") if not p.name.startswith("skiko-awt-runtime-"))
+                if directory.is_dir() and jars:
+                    return jars
+        raise AssertionError(f"no provisioned {name} under {roots}")
+
+    skiko = sorted({p.resolve() for root in roots for p in root.rglob("skiko-awt-runtime-*.jar")})
+    assert skiko, f"no provisioned Skiko native under {roots}"
+    fonts = sorted(p for p in (cache / "fonts").rglob("*") if p.is_file()) if (cache / "fonts").is_dir() else []
+    return {"desktop_daemon": sidecar("lib-daemon-desktop"), "renderer": sidecar("lib-renderer"),
+            "skiko": skiko[:1], "fonts": fonts}
+
+
+def check_render_toolchain(args, consumer, bazel, evidence, expected_png):
+    inputs = render_inputs(args)
+    package = consumer / "render"
+    package.mkdir()
+    labels = {}
+    for kind, files in inputs.items():
+        (package / kind).mkdir()
+        labels[kind] = []
+        for source in files:
+            shutil.copyfile(source, package / kind / source.name)
+            labels[kind].append(f"{kind}/{source.name}")
+    (package / "BUILD.bazel").write_text(
+        'load("@rules_compose_preview//:render_toolchain.bzl", "compose_preview_render_toolchain")\n'
+        "compose_preview_render_toolchain(\n    name = \"inputs\",\n" +
+        "".join(f"    {kind} = {json.dumps(files)},\n" for kind, files in labels.items()) +
+        ")\n"
+        "toolchain(\n    name = \"toolchain\",\n    toolchain = \":inputs\",\n"
+        "    toolchain_type = \"@rules_compose_preview//:render_toolchain_type\",\n)\n")
+    disk_cache = evidence.parent / "render-toolchain-disk-cache"
+    shutil.rmtree(disk_cache, ignore_errors=True)
+    flags = ["--extra_toolchains=//render:toolchain", "--incompatible_strict_action_env",
+             f"--disk_cache={disk_cache}", "--output_groups=png", "--jobs=4"]
+    first = evidence / "toolchain-render-actions.json"
+    invoke(bazel + ["build", "//:ui-preview", *flags, f"--execution_log_json_file={first}"],
+           consumer, evidence / "toolchain-render.log")
+    executed = first.read_text()
+    assert "ComposePreviewRender" in executed and "ComposePreviewLocalRender" not in executed
+    renders = consumer / "bazel-bin/ui-preview.renders"
+    runtime = next(p for p in renders.glob("*.png") if "RuntimeGreeting" in p.name)
+    assert png(runtime) == png(expected_png), "Toolchain and CLI-first images differ"
+    copy_evidence(runtime, evidence / "toolchain-render.png")
+    invoke(bazel + ["clean"], consumer, evidence / "toolchain-clean.log")
+    second = evidence / "toolchain-cached-actions.json"
+    invoke(bazel + ["build", "//:ui-preview", *flags, f"--execution_log_json_file={second}"],
+           consumer, evidence / "toolchain-cached.log")
+    cached = execution_log(second)
+    renders_run = [entry for entry in cached if entry.get("mnemonic") == "ComposePreviewRender"]
+    assert renders_run and all(entry.get("cacheHit") for entry in renders_run), "Toolchain render must be served from the cache"
+    shutil.rmtree(package)
+
+
 def check(args):
     source = args.fixture.resolve()
     rules = Path(__file__).resolve().parents[1]
@@ -218,6 +291,9 @@ def check(args):
             with zipfile.ZipFile(baked) as archive:
                 assert len([name for name in archive.namelist() if name.startswith("previews/") and name.endswith(".png")]) == 2
             copy_evidence(baked, evidence / "rendered-bundle.png")
+            # A registered render toolchain declares every render input, so the render runs with a
+            # strict environment and no network, and is cached like any other action.
+            check_render_toolchain(args, consumer, bazel, evidence, normal_png)
             # Source-only mode has no CLI repository or target, and exposes no render actions.
             source_module = re.sub(r'\ncli_repository = use_repo_rule\(.*?strip_prefix = "compose-preview-test"\)\n', '', module, flags=re.S)
             (consumer / "MODULE.bazel").write_text(source_module)
