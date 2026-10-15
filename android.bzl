@@ -24,6 +24,7 @@ Two aspects, so the walk over a large graph stays cheap:
 
 load(":android_providers.bzl", "ANDROID_SDK_TOOLCHAIN_TYPE", "StarlarkAndroidResourcesInfo")
 load(":java_info.bzl", "JDK_RUNTIME", "JavaInfo", "JavaRuntimeInfo")
+load(":runtime.bzl", "compose_preview_metadata_args")
 
 _OwnJarsInfo = provider(
     doc = "A target's own compiled jars, including those of targets it exports.",
@@ -137,6 +138,11 @@ def _link(ctx, target, resources, order):
     apk = ctx.actions.declare_file(prefix + "resources.ap_")
     r_jar = ctx.actions.declare_file(prefix + "r-final.jar")
 
+    # The link needs real lists: aapt2's overlay order and the asset override below depend on
+    # the order and on dedupe across depsets, which no depset expresses. Each depset is
+    # flattened exactly once, here, and only for the selected target (the collector flattens
+    # nothing).
+    #
     # Overlay order (dependencies first, the target's own archive last) comes from the aspect's
     # own traversal. Archives it did not reach (a dependency through an attribute other than
     # deps/exports) go first, as the most distant.
@@ -238,10 +244,13 @@ def _impl(target, ctx):
         transitive = [java.transitive_runtime_jars],
         order = "preorder",
     )
-    runtime_files = runtime.to_list()
-    runtime_paths = {f.path: True for f in runtime_files}
     sources = [f for f in getattr(ctx.rule.files, "srcs", []) if f.extension in ["kt", "java"]]
     runfiles = target[DefaultInfo].default_runfiles.files
+
+    # dataFiles is the runfiles less the runtime jars, a set difference that Args cannot express
+    # lazily: both depsets are flattened here, once, and only the filtered list outlives analysis.
+    runtime_paths = {f.path: True for f in runtime.to_list()}
+    data_files = [f for f in runfiles.to_list() if f.path not in runtime_paths]
     android = {
         "packageName": resources.package,
         "resourceApk": linked.apk.path,
@@ -251,6 +260,9 @@ def _impl(target, ctx):
     if linked.compile_sdk:
         android["compileSdk"] = linked.compile_sdk
     link_inputs = linked.inputs
+
+    # Encoded eagerly: these lists were already flattened for the link action, and are bounded by
+    # the resource archives and assets, not by the runtime classpath.
     android["link"] = {
         "script": ctx.file._link.path,
         "aapt2": link_inputs.aapt2_binary,
@@ -261,20 +273,16 @@ def _impl(target, ctx):
         "assets": [{"path": path, "file": f.path} for path, f in link_inputs.assets.items()],
     }
     metadata = ctx.actions.declare_file(target.label.name + ".compose-preview.json")
-    ctx.actions.write(metadata, json.encode({
-        "schemaVersion": 2,
-        "target": str(target.label),
-        # Includes Bazel's configured output-directory key; never combine configurations.
-        "configuration": ctx.bin_dir.path,
-        "projectJars": [f.path for f in project_jars],
-        "runtimeJars": [f.path for f in runtime_files],
-        # The target that produced each jar (File.owner): names the coordinate of a jar whose
-        # name and path hide it, and the target to rebuild for exact bytes in this workspace.
-        "runtimeJarOwners": {f.path: str(f.owner) for f in runtime_files if f.owner},
-        "sourceFiles": [f.path for f in sources],
-        "dataFiles": [f.path for f in runfiles.to_list() if f.path not in runtime_paths],
-        "android": android,
-    }))
+    ctx.actions.write(metadata, compose_preview_metadata_args(
+        ctx,
+        schema_version = 2,
+        target = target.label,
+        project_jars = project_jars,
+        runtime = runtime,
+        source_files = sources,
+        data_files = data_files,
+        extra = {"android": android},
+    ))
     return [
         OutputGroupInfo(
             compose_preview_metadata = depset([metadata]),

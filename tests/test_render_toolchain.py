@@ -60,9 +60,21 @@ class RenderToolchainTest(unittest.TestCase):
             os.chdir(ROOT)
 
     def test_artifacts_name_each_runtime_jars_owner(self):
+        runtime = (ROOT / "runtime.bzl").read_text()
+        self.assertIn('_json_member(args, "runtimeJarOwners", runtime, map_each = _json_owner, brackets = "{}")', runtime)
+        owner = re.search(r"def _json_owner\(file\):(.*?)\n\n", runtime, re.S).group(1)
+        self.assertIn("if not file.owner:\n        return None", owner)
+        self.assertIn('json.encode(file.path) + ":" + json.encode(str(file.owner))', owner)
+        # Every writer of artifacts metadata shares that encoding.
         for name in ("runtime.bzl", "android.bzl", "defs.bzl"):
-            self.assertIn('"runtimeJarOwners": {f.path: str(f.owner) for f in runtime_files if f.owner}',
-                          (ROOT / name).read_text(), name)
+            self.assertIn("ctx.actions.write(", (ROOT / name).read_text(), name)
+            self.assertIn("compose_preview_metadata_args(", (ROOT / name).read_text(), name)
+
+    def test_metadata_is_written_lazily(self):
+        # The runtime closure reaches the metadata as a depset through Args, not a flattened list.
+        for name in ("runtime.bzl", "android.bzl", "defs.bzl"):
+            self.assertNotIn("json.encode({", (ROOT / name).read_text(), name)
+        self.assertIn('set_param_file_format("multiline")', (ROOT / "runtime.bzl").read_text())
 
     def test_toolchain_type_is_declared(self):
         self.assertIn('toolchain_type(name = "render_toolchain_type")', (ROOT / "BUILD.bazel").read_text())

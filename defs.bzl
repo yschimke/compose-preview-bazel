@@ -2,6 +2,7 @@
 
 load(":java_info.bzl", "JavaInfo")
 load(":render_toolchain.bzl", "RENDER_TOOLCHAIN_TYPE", "render_inputs")
+load(":runtime.bzl", "compose_preview_metadata_args")
 
 def _key(ctx, file):
     path = file.short_path
@@ -13,21 +14,21 @@ def _metadata(ctx):
     if not project:
         fail("module must provide its own runtime output jars")
     runtime = depset(project, transitive = [java.transitive_runtime_jars])
-    runtime_files = runtime.to_list()
     data = ctx.attr.module[DefaultInfo].default_runfiles
     files = depset(ctx.files.srcs + ctx.files.maven_install, transitive = [runtime, data.files])
     manifest = ctx.actions.declare_file(ctx.label.name + ".artifacts.json")
-    ctx.actions.write(manifest, json.encode({
-        "schemaVersion": 1,
-        "target": str(ctx.attr.module.label),
-        "configuration": ctx.bin_dir.path,
-        "projectJars": [f.path for f in project],
-        "runtimeJars": [f.path for f in runtime_files],
-        # The target that produced each jar; see runtime.bzl.
-        "runtimeJarOwners": {f.path: str(f.owner) for f in runtime_files if f.owner},
-        "sourceFiles": [f.path for f in ctx.files.srcs],
-        "dataFiles": [f.path for f in data.files.to_list()],
-    }))
+
+    # Written from the depsets when the action runs; analysis flattens nothing. Unlike the
+    # aspect's, these dataFiles keep the runtime jars, so no set difference is needed.
+    ctx.actions.write(manifest, compose_preview_metadata_args(
+        ctx,
+        schema_version = 1,
+        target = ctx.attr.module.label,
+        project_jars = project,
+        runtime = runtime,
+        source_files = ctx.files.srcs,
+        data_files = data.files,
+    ))
     return manifest, files
 
 def _impl(ctx):
