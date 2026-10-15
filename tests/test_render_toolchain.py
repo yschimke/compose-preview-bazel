@@ -59,6 +59,11 @@ class RenderToolchainTest(unittest.TestCase):
             self.assertFalse(Path("m2/com/example").exists())
             os.chdir(ROOT)
 
+    def test_artifacts_name_each_runtime_jars_owner(self):
+        for name in ("runtime.bzl", "android.bzl", "defs.bzl"):
+            self.assertIn('"runtimeJarOwners": {f.path: str(f.owner) for f in runtime_files if f.owner}',
+                          (ROOT / name).read_text(), name)
+
     def test_toolchain_type_is_declared(self):
         self.assertIn('toolchain_type(name = "render_toolchain_type")', (ROOT / "BUILD.bazel").read_text())
 

@@ -62,6 +62,17 @@ class AndroidAspectTest(unittest.TestCase):
         self.assertIn("com/example/ui/R$string.class", names)
         self.assertIn("com/example/theme/R$color.class", names)
 
+    def test_every_runtime_jar_names_its_producing_target(self):
+        runtime = self.metadata["runtimeJars"]
+        owners = self.metadata["runtimeJarOwners"]
+        self.assertTrue(set(owners) <= set(runtime), set(owners) - set(runtime))
+        self.assertEqual(set(runtime), set(owners))
+        for path, label in owners.items():
+            self.assertRegex(label, r"^@*[^/]*//", path)
+        # The selected target's own jars are owned by targets in the fixture's own packages.
+        project = self.metadata["projectJars"]
+        self.assertTrue(all(owners[jar].lstrip("@").startswith("//") for jar in project), owners)
+
     def test_resource_apk_links_dependency_resources(self):
         apk = self.root / self.metadata["android"]["resourceApk"]
         with zipfile.ZipFile(apk) as archive:
