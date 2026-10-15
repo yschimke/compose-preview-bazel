@@ -27,6 +27,11 @@ class RenderToolchainTest(unittest.TestCase):
         self.assertNotIn("_compose_preview_render", (ROOT / "render_toolchain.bzl").read_text())
         self.assertIn('output.path + ".stage"', (ROOT / "defs.bzl").read_text())
 
+    def test_maven_links_do_not_assume_a_repository_prefix(self):
+        source = (ROOT / "render_toolchain.bzl").read_text()
+        self.assertNotIn("*/v1/", source)
+        self.assertIn("processed_", source)
+
     def test_toolchain_type_is_declared(self):
         self.assertIn('toolchain_type(name = "render_toolchain_type")', (ROOT / "BUILD.bazel").read_text())
 
