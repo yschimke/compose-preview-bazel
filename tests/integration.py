@@ -322,12 +322,172 @@ def check(args):
 
 
 
+def strip_rules_module(module):
+    """MODULE.bazel without its own rules_compose_preview dependency and override, if any."""
+    module = re.sub(r'bazel_dep\(name = "rules_compose_preview"[^)]*\)\n?', "", module)
+    return re.sub(r'(?:local_path_override|git_override|archive_override)\(\s*module_name = "rules_compose_preview",.*?\)\n?',
+                  "", module, flags=re.S)
+
+
+def tool_repositories(cli_archive, producer_archive):
+    """The use_repo_rule lines that import the CLI and producer test archives."""
+    return (
+        '\ncli_repository = use_repo_rule("@rules_compose_preview//:repositories.bzl", "compose_preview_cli_repository")\n'
+        'cli_repository(name = "compose_preview_cli", urls = [%s], sha256 = "%s", strip_prefix = "compose-preview-test")\n' % (
+            json.dumps(cli_archive.as_uri()), hashlib.sha256(cli_archive.read_bytes()).hexdigest()) +
+        '\nproducer_repository = use_repo_rule("@rules_compose_preview//:repositories.bzl", "compose_preview_producer_repository")\n'
+        'producer_repository(name = "compose_preview_producer", urls = [%s], sha256 = "%s", strip_prefix = "producer-test")\n' % (
+            json.dumps(producer_archive.as_uri()), hashlib.sha256(producer_archive.read_bytes()).hexdigest()))
+
+
+ANDROID_PREVIEW = """
+compose_preview(
+    name = "android-preview",
+    cli = "@compose_preview_cli//:cli",
+    filter = "Greeting",
+    maven_install = ":maven_install.json",
+    module = ":%s",
+    outputs = ["png"],
+    producer = "@compose_preview_producer//:producer",
+    srcs = glob(["app/src/main/kotlin/**/*.kt"]),
+)
+"""
+
+
+def check_android(args):
+    """An Android library through compose_preview: a cacheable, deterministic render.
+
+    The fixture is compose-ai-contrib's bazel-apk (a rules_kotlin kt_android_library whose
+    Greeting preview reads string, colour and drawable resources). The render toolchain declares
+    the Android daemon and android-all jars `compose-preview provision --android` fetched, so the
+    render runs with the network off and is cached; a second execution from an empty cache must
+    produce the same bytes.
+    """
+    source = args.android_fixture.resolve()
+    rules = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("package_rules", rules / "scripts" / "package.py")
+    package_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(package_module)
+    evidence = (args.evidence / "android").resolve()
+    evidence.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="compose-preview-android-") as temporary:
+        temporary = Path(temporary)
+        rules_archive = package_module.package(rules, temporary)
+        cli_archive = temporary / "cli.tar.gz"
+        with tarfile.open(cli_archive, "w:gz") as tar:
+            tar.add(args.cli_dist.resolve(), arcname="compose-preview-test")
+        producer_archive = temporary / "producer.tar.gz"
+        with tarfile.open(producer_archive, "w:gz") as tar:
+            tar.add(args.producer_dist.resolve(), arcname="producer-test")
+        consumer = temporary / "consumer"
+        consumer.mkdir()
+        startup = [f"--output_user_root={args.output_user_root.resolve()}"] if args.output_user_root else []
+        bazel = [str(args.bazel)] + startup
+        try:
+            shutil.copytree(source / "app", consumer / "app")
+            for name in ("BUILD.bazel", "MODULE.bazel", "maven_install.json", ".bazelversion", ".bazelrc", "compose_preview.bzl"):
+                if (source / name).is_file():
+                    shutil.copy2(source / name, consumer / name)
+            version = re.search(r'version\s*=\s*"([^"]+)"', (rules / "MODULE.bazel").read_text())[1]
+            module = strip_rules_module((consumer / "MODULE.bazel").read_text())
+            module += '\nbazel_dep(name = "rules_compose_preview", version = "%s")\n' % version
+            module += 'archive_override(module_name = "rules_compose_preview", urls = [%s], sha256 = "%s", strip_prefix = "%s")\n' % (
+                json.dumps(rules_archive.as_uri()), hashlib.sha256(rules_archive.read_bytes()).hexdigest(),
+                rules_archive.name.removesuffix(".tar.gz"))
+            module += tool_repositories(cli_archive, producer_archive)
+            (consumer / "MODULE.bazel").write_text(module)
+            library = re.search(r'kt_android_library\(\s*name = "([^"]+)"', (consumer / "BUILD.bazel").read_text())[1]
+            build = 'load("@rules_compose_preview//:defs.bzl", "compose_preview")\n' + (consumer / "BUILD.bazel").read_text()
+            (consumer / "BUILD.bazel").write_text(build + ANDROID_PREVIEW % library)
+
+            # The Android render's inputs, as `provision` fetches them for an offline machine.
+            environment = dict(os.environ, XDG_CACHE_HOME=str(temporary / "xdg"))
+            report = json.loads(invoke([str(args.cli_dist.resolve() / "bin/compose-preview"), "provision", "--android",
+                                        "--android-sdk", str(args.android_sdk), "--json"],
+                                       temporary, evidence / "provision.log", env=environment))
+            items = {item["name"]: Path(item["path"]) for item in report["items"] if item["ok"]}
+            daemon = sorted(items["android daemon"].glob("*.jar"))
+            android_all = [items[f"android-all SDK {args.android_sdk}"]]
+            fonts = sorted(p for p in (Path.home() / ".cache/composeai/fonts").glob("*") if p.is_file())
+            package = consumer / "render"
+            labels = {}
+            for kind, files in (("android_daemon", daemon), ("android_all", android_all), ("fonts", fonts)):
+                (package / kind).mkdir(parents=True)
+                labels[kind] = []
+                for path in files:
+                    shutil.copyfile(path, package / kind / path.name)
+                    labels[kind].append(f"{kind}/{path.name}")
+            (package / "BUILD.bazel").write_text(
+                'load("@rules_compose_preview//:render_toolchain.bzl", "compose_preview_render_toolchain")\n'
+                "compose_preview_render_toolchain(\n    name = \"inputs\",\n" +
+                "".join(f"    {kind} = {json.dumps(files)},\n" for kind, files in labels.items()) +
+                # SDK 36 renders need Java 21 (on 17 the CLI clamps to 35).
+                '    java_runtime = "@rules_java//toolchains:remotejdk_21",\n)\n'
+                "toolchain(\n    name = \"toolchain\",\n    toolchain = \":inputs\",\n"
+                "    toolchain_type = \"@rules_compose_preview//:render_toolchain_type\",\n)\n")
+
+            def build_render(name, disk_cache):
+                log = evidence / f"{name}-actions.json"
+                flags = ["--extra_toolchains=//render:toolchain", "--incompatible_strict_action_env",
+                         f"--disk_cache={disk_cache}", "--output_groups=png,rendered_bundle", "--jobs=4"]
+                if os.environ.get("ANDROID_HOME"):
+                    flags.append(f"--repo_env=ANDROID_HOME={os.environ['ANDROID_HOME']}")
+                invoke(bazel + ["build", "//:android-preview", *flags, f"--execution_log_json_file={log}"],
+                       consumer, evidence / f"{name}.log")
+                renders = execution_log(log)
+                ran = [e for e in renders if e.get("mnemonic") in ("ComposePreviewRender", "ComposePreviewLocalRender")]
+                assert ran and all(e["mnemonic"] == "ComposePreviewRender" for e in ran), \
+                    "An Android render with the Android toolchain inputs must be the cacheable action"
+                pngs = sorted((consumer / "bazel-bin/android-preview.renders").glob("*.png"))
+                assert pngs, "The Android render produced no PNG"
+                return ran, {p.name: png(p) for p in pngs}, pngs
+
+            first_cache, second_cache = temporary / "disk-cache-1", temporary / "disk-cache-2"
+            ran, first, pngs = build_render("android-render", first_cache)
+            assert not any(e.get("cacheHit") for e in ran), "The first Android render must execute"
+            greeting = next(p for p in pngs if "Greeting" in p.name)
+            copy_evidence(greeting, evidence / "android-render.png")
+            if args.android_check:
+                invoke(["python3", str(args.android_check.resolve()), str(evidence / "android-render.png")],
+                       temporary, evidence / "android-check.log")
+            with zipfile.ZipFile(consumer / "bazel-bin/android-preview.rendered-bundle.png") as baked:
+                manifest = json.loads(baked.read("bundle.json"))
+                assert manifest["backend"] == "android", manifest["backend"]
+                assert "android/resources.ap_" in baked.namelist()
+                assert any(n.startswith("previews/") and n.endswith(".png") for n in baked.namelist())
+            # Determinism: a second execution, from an empty cache, gives the same bytes.
+            invoke(bazel + ["clean"], consumer, evidence / "android-clean-1.log")
+            ran, second, _ = build_render("android-rerender", second_cache)
+            assert not any(e.get("cacheHit") for e in ran), "The re-render must execute, not hit a cache"
+            assert first == second, f"Android renders differ between executions: {first} != {second}"
+            # Cacheability: a rebuild against the first cache is served from it.
+            invoke(bazel + ["clean"], consumer, evidence / "android-clean-2.log")
+            ran, third, _ = build_render("android-cached", first_cache)
+            assert all(e.get("cacheHit") for e in ran), "The Android render must be served from the cache"
+            assert third == first
+            evidence.joinpath("summary.json").write_text(json.dumps(
+                {"androidRender": "passed", "deterministic": True, "cached": True, "pngSha256": first}, indent=2) + "\n")
+            print("Android compose_preview render: cacheable, byte-identical across executions, served from cache.")
+        finally:
+            subprocess.run(bazel + ["shutdown"], cwd=consumer, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=60, check=False)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fixture", type=Path, required=True)
+    parser.add_argument("--fixture", type=Path, help="compose-ai-contrib's bazel-desktop")
+    parser.add_argument("--android-fixture", type=Path, help="compose-ai-contrib's bazel-apk")
+    parser.add_argument("--android-sdk", type=int, default=36)
+    parser.add_argument("--android-check", type=Path, help="a script that checks the Android render's pixels")
     parser.add_argument("--cli-dist", type=Path, required=True)
     parser.add_argument("--producer-dist", type=Path, required=True)
     parser.add_argument("--bazel", default="bazel")
     parser.add_argument("--output-user-root", type=Path)
     parser.add_argument("--evidence", type=Path, default=Path("build/bazel-native"))
-    check(parser.parse_args())
+    arguments = parser.parse_args()
+    if not arguments.fixture and not arguments.android_fixture:
+        parser.error("give --fixture, --android-fixture or both")
+    if arguments.fixture:
+        check(arguments)
+    if arguments.android_fixture:
+        check_android(arguments)

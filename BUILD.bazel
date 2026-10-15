@@ -33,6 +33,7 @@ bzl_library(
     name = "defs_bzl",
     srcs = ["defs.bzl"],
     deps = [
+        ":android_bzl",
         ":java_info_bzl",
         ":launcher_bzl",
         ":render_toolchain_bzl",

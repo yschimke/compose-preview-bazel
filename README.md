@@ -4,8 +4,9 @@
 format with [compose-ai-tools](https://github.com/yschimke/compose-ai-tools).
 Experimental Desktop JVM support is tested with Bazel 9.2, Kotlin 2.4.20 and
 Compose Multiplatform 1.11.1. Blaze needs internal validation. Android targets
-render through the CLI with the Android aspect (below); native CMP and additional
-exports remain future work.
+render through the CLI with the Android aspect (below), or as ordinary Bazel
+actions through `compose_preview` ([Android modules](#android-modules-in-compose_preview));
+native CMP and additional exports remain future work.
 
 ## CLI first
 
@@ -81,6 +82,52 @@ The CLI renders these artifacts on its Robolectric daemon when
 `compose-preview render` and `compose-preview bazel bundle` then work as for
 Desktop targets. compose-ai-contrib's `bazel-android-render` job is the
 end-to-end proof on a rules_android `kt_android_library`.
+
+### Android modules in `compose_preview`
+
+The CLI path above renders outside Bazel, so nothing it renders is cached.
+`compose_preview` also takes an Android library as its `module`, and then
+prepares, renders and bakes it with the same three actions as a Desktop module:
+
+```starlark
+compose_preview(
+    name = "ui-preview",
+    module = ":ui",  # android_library or kt_android_library
+    producer = "@compose_preview_producer//:producer",
+    cli = "@compose_preview_cli//:cli",
+    srcs = glob(["src/**/*.kt"]),
+    maven_install = ":maven_install.json",
+    outputs = ["png"],
+)
+```
+
+How it fits together, reusing what already exists rather than adding a mode:
+
+- **Linking.** `module` carries `compose_preview_android_module_aspect`, the
+  Android aspect's own implementation returning a provider instead of an output
+  group. It applies only to targets advertising `AndroidIdeInfo`
+  (`android_library`, and so `kt_android_library`'s wrapper), so a Desktop module
+  never resolves the Android SDK toolchain and its actions are unchanged.
+- **Preparation.** The rule writes artifacts schema 2 (the `android` block:
+  package, linked resource APK, manifest, final-ID R jar, `compileSdk`) and the
+  producer turns it into a `backend="android"` bundle carrying those resources,
+  exactly as `compose-preview bazel bundle` does. No bundle-format change.
+- **Rendering.** `bundle render` on that bundle runs the Robolectric renderer
+  from the Android daemon sidecar. The rule passes the target's SDK level
+  (`--android-sdk`), the `android.jar` its link used (`--android-jar`, a declared
+  input, so the host SDK is never read) and its app clock (`--clock-packages`).
+- **App clock.** `pin_app_clock` (default on, as Gradle's
+  `composePreview.pinAppClock` and `bazel.json`'s `pinAppClock`) pins
+  `System.currentTimeMillis()` for the target's own package (`<package>.`), or
+  for `app_clock_packages` when set. The bundle format is untouched: the list is
+  a render flag, part of the render action's key.
+- **Caching.** Cacheable only when the registered render toolchain declares both
+  Android inputs, `android_daemon` and `android_all` (below). Without them, or
+  without a toolchain, the render is local, uncached and non-remote, as a Desktop
+  render without a toolchain is. Preparation and baking are cacheable either way.
+
+An SDK 36 render needs a Java 21 runtime (the toolchain's `java_runtime`); on
+Java 17 the CLI clamps the sandbox to SDK 35 and says so.
 
 ## Source-bundle-only monorepos
 
@@ -208,13 +255,31 @@ Then `register_toolchains("//:render_toolchain")` in `MODULE.bazel`, or
 `--extra_toolchains=//:render_toolchain`. Point each attribute at the released
 artifacts the CLI would otherwise download, pinned by checksum (`http_file`,
 `http_archive`, `maven_install`) or vendored; `compose-preview provision` fetches
-them once into a directory you can import. `compose_preview` renders Desktop
-targets; Android targets render through the CLI against the Android aspect's
-metadata, offline through the CLI's own pre-provisioned directories
-(`COMPOSE_PREVIEW_ROBOLECTRIC_DEPS_DIR`, compose-ai-tools' `docs/OFFLINE.md`). The
+them once into a directory you can import. The
 external-consumer CI job registers a toolchain from the files a CLI render
 provisioned, checks the image matches the CLI's byte-for-byte, and checks a rebuild
 after `bazel clean` is served from the cache.
+
+Android modules add two attributes, the pieces `compose-preview provision
+--android --android-sdk <n>` fetches:
+
+```starlark
+compose_preview_render_toolchain(
+    name = "render_inputs",
+    # ... the Desktop attributes above, if Desktop modules render too ...
+    # compose-preview-android-daemon-<v>.zip from compose-preview-daemon's release
+    android_daemon = ["@compose_preview_android_daemon//:lib-daemon-android"],
+    # android-all-instrumented jars matching that daemon's Robolectric, one per SDK
+    android_all = ["@android_all_36//file"],
+    fonts = glob(["fonts/**"]),
+    java_runtime = "@rules_java//toolchains:remotejdk_21",  # SDK 36 needs Java 21
+)
+```
+
+An Android render stages only these (and the fonts), as `lib-daemon-android/`
+and `COMPOSE_PREVIEW_ROBOLECTRIC_DEPS_DIR`, so a Desktop render's inputs, and its
+cache key, do not change when they are added. The `android_all` jars must match
+the Robolectric inside that Android daemon (compose-ai-tools' `docs/OFFLINE.md`).
 
 Coordinates are preferred even for transformed Bazel JARs. Recovery considers
 lockfile paths/names, Maven layout, pom.properties, manifest versions and the
@@ -291,7 +356,18 @@ python3 tests/integration.py \
   --fixture /path/to/compose-ai-contrib/bazel-desktop \
   --cli-dist /path/to/tools/cli/build/install/compose-preview \
   --producer-dist /path/to/tools/bundle/producer/build/install/compose-preview-producer
+python3 tests/integration.py \
+  --android-fixture /path/to/compose-ai-contrib/bazel-apk \
+  --android-check /path/to/compose-ai-contrib/.github/scripts/check-android-render.py \
+  --cli-dist /path/to/tools/cli/build/install/compose-preview \
+  --producer-dist /path/to/tools/bundle/producer/build/install/compose-preview-producer
 ```
+
+The Android run (CI's External Android consumer job) renders bazel-apk's
+`kt_android_library` through `compose_preview` with a render toolchain built from
+what `compose-preview provision --android` fetched, and checks that the render is
+the cacheable action, that executing it twice from empty caches gives the same
+bytes, and that a rebuild after `bazel clean` is served from the cache.
 
 Prepared bundles use sorted archive entries, fixed timezone-independent ZIP timestamps,
 UTF-8/canonical JSON and portable source paths. Classpath order is preserved.

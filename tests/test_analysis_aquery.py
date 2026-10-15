@@ -44,6 +44,20 @@ class RenderRequirementsTest(unittest.TestCase):
         self.assertEqual(["ComposePreviewLocalRender"], [mnemonic for mnemonic, _ in actions])
         self.assertTrue(LOCAL_ONLY <= actions[0][1], actions)
 
+    def test_android_render_with_android_inputs_has_no_local_requirements(self):
+        actions = render_requirements("test_android_render_with_android_toolchain_is_cacheable_subject",
+                                      f"--extra_toolchains={PACKAGE}:android_sdk_toolchain",
+                                      f"--extra_toolchains={PACKAGE}:android_render_toolchain")
+        self.assertEqual(["ComposePreviewRender"], [mnemonic for mnemonic, _ in actions])
+        self.assertFalse(actions[0][1] & LOCAL_ONLY, actions)
+
+    def test_android_render_without_android_inputs_is_local_and_uncached(self):
+        actions = render_requirements("test_android_render_with_desktop_toolchain_is_local_subject",
+                                      f"--extra_toolchains={PACKAGE}:android_sdk_toolchain",
+                                      f"--extra_toolchains={PACKAGE}:render_toolchain")
+        self.assertEqual(["ComposePreviewLocalRender"], [mnemonic for mnemonic, _ in actions])
+        self.assertTrue(LOCAL_ONLY <= actions[0][1], actions)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,11 +1,15 @@
 """Public rules_android providers; internal deployments may substitute this shim.
 
-Only these two symbols tie android.bzl to rules_android: the resources provider an
-android_library returns, and the Android SDK toolchain type that supplies aapt2
-and android.jar.
+Only these symbols tie android.bzl to rules_android: the resources provider an
+android_library returns, the provider it advertises (which selects the targets
+compose_preview's module aspect applies to), and the Android SDK toolchain type
+that supplies aapt2 and android.jar.
 """
 
-load("@rules_android//providers:providers.bzl", _StarlarkAndroidResourcesInfo = "StarlarkAndroidResourcesInfo")
+load("@rules_android//providers:providers.bzl", _AndroidIdeInfo = "AndroidIdeInfo", _StarlarkAndroidResourcesInfo = "StarlarkAndroidResourcesInfo")
+
+# Advertised (rule `provides`) by android_library since rules_android 0.6.6.
+AndroidIdeInfo = _AndroidIdeInfo
 
 StarlarkAndroidResourcesInfo = _StarlarkAndroidResourcesInfo
 

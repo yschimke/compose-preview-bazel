@@ -22,7 +22,7 @@ Two aspects, so the walk over a large graph stays cheap:
   dependencies of the selected target only, never of the libraries it reaches.
 """
 
-load(":android_providers.bzl", "ANDROID_SDK_TOOLCHAIN_TYPE", "StarlarkAndroidResourcesInfo")
+load(":android_providers.bzl", "ANDROID_SDK_TOOLCHAIN_TYPE", "AndroidIdeInfo", "StarlarkAndroidResourcesInfo")
 load(":java_info.bzl", "JDK_RUNTIME", "JavaInfo", "JavaRuntimeInfo")
 load(":runtime.bzl", "compose_preview_metadata_args")
 
@@ -231,15 +231,35 @@ compose_preview_android_collector = aspect(
     provides = [_OwnJarsInfo, _ResourceOrderInfo],
 )
 
-def _impl(target, ctx):
+ComposePreviewAndroidInfo = provider(
+    doc = """An Android target's linked render inputs, for compose_preview's `module`.
+
+Returned by compose_preview_android_module_aspect, which compose_preview attaches to its `module`
+attribute; the same values the CLI's aspect writes as artifacts schema 2.""",
+    fields = {
+        "project_jars": "list of the target's own runtime jars (an exported library's included)",
+        "runtime": "depset of every runtime jar, the final-ID R jar first",
+        "sources": "list of the target's own .kt/.java sources",
+        "data_files": "list of the runfiles that are not runtime jars",
+        "android": "dict: the artifacts' `android` block (packageName, resourceApk, manifest, rJar, compileSdk)",
+        "package": "the target's resource package; its app clock prefix",
+        "compile_sdk": "int or None: the SDK platform level the link used",
+        "android_jar": "File: the SDK's android.jar the link used",
+        "files": "depset of the linked files (resource APK, manifest, R jar)",
+    },
+)
+
+def _linked(target, ctx):
+    """The selected target's linked render inputs, or None when it is not an Android library."""
+
     # A selected target that is not an Android library with its own classes gets no metadata
     # output, and the CLI reports that no metadata file was produced for it.
     if JavaInfo not in target or StarlarkAndroidResourcesInfo not in target:
-        return []
+        return None
     java = target[JavaInfo]
     project_jars = target[_OwnJarsInfo].jars.to_list()
     if not project_jars:
-        return []
+        return None
     resources = target[StarlarkAndroidResourcesInfo]
     linked = _link(ctx, target, resources, target[_ResourceOrderInfo])
 
@@ -264,6 +284,23 @@ def _impl(target, ctx):
     }
     if linked.compile_sdk:
         android["compileSdk"] = linked.compile_sdk
+    return struct(
+        linked = linked,
+        project_jars = project_jars,
+        runtime = runtime,
+        sources = sources,
+        runfiles = runfiles,
+        data_files = data_files,
+        android = android,
+        package = resources.package,
+    )
+
+def _impl(target, ctx):
+    found = _linked(target, ctx)
+    if not found:
+        return []
+    linked = found.linked
+    android = dict(found.android)
     link_inputs = linked.inputs
 
     # Encoded eagerly: these lists were already flattened for the link action, and are bounded by
@@ -282,22 +319,39 @@ def _impl(target, ctx):
         ctx,
         schema_version = 2,
         target = target.label,
-        project_jars = project_jars,
-        runtime = runtime,
-        source_files = sources,
-        data_files = data_files,
+        project_jars = found.project_jars,
+        runtime = found.runtime,
+        source_files = found.sources,
+        data_files = found.data_files,
         extra = {"android": android},
     ))
     return [
         OutputGroupInfo(
             compose_preview_metadata = depset([metadata]),
             compose_preview_runtime = depset(
-                sources + [linked.apk, linked.manifest, ctx.file._link, link_inputs.android_jar] +
+                found.sources + [linked.apk, linked.manifest, ctx.file._link, link_inputs.android_jar] +
                 link_inputs.compiled + link_inputs.assets.values(),
-                transitive = [runtime, runfiles, link_inputs.java_files],
+                transitive = [found.runtime, found.runfiles, link_inputs.java_files],
             ),
         ),
     ]
+
+def _module_impl(target, ctx):
+    found = _linked(target, ctx)
+    if not found:
+        return []
+    linked = found.linked
+    return [ComposePreviewAndroidInfo(
+        project_jars = found.project_jars,
+        runtime = found.runtime,
+        sources = found.sources,
+        data_files = found.data_files,
+        android = found.android,
+        package = found.package,
+        compile_sdk = linked.compile_sdk,
+        android_jar = linked.inputs.android_jar,
+        files = depset([linked.apk, linked.manifest, linked.r_jar]),
+    )]
 
 compose_preview_android_aspect = aspect(
     implementation = _impl,
@@ -312,4 +366,20 @@ compose_preview_android_aspect = aspect(
         "_jdk": attr.label(default = JDK_RUNTIME, providers = [JavaRuntimeInfo], cfg = "exec"),
     },
     toolchains = [config_common.toolchain_type(ANDROID_SDK_TOOLCHAIN_TYPE, mandatory = True)],
+)
+
+# compose_preview attaches this to its `module` attribute, so an Android target renders through the
+# same bundle, render and bake actions as a Desktop one. It applies only to targets advertising
+# AndroidIdeInfo (android_library, and so kt_android_library's wrapper), so a Desktop module never
+# resolves the Android SDK toolchain; the CLI's aspect above is applied to whatever it is named on.
+compose_preview_android_module_aspect = aspect(
+    implementation = _module_impl,
+    requires = [compose_preview_android_collector],
+    required_providers = [AndroidIdeInfo],
+    attrs = {
+        "_link": attr.label(default = Label(":link.sh"), allow_single_file = True),
+        "_jdk": attr.label(default = JDK_RUNTIME, providers = [JavaRuntimeInfo], cfg = "exec"),
+    },
+    toolchains = [config_common.toolchain_type(ANDROID_SDK_TOOLCHAIN_TYPE, mandatory = True)],
+    provides = [ComposePreviewAndroidInfo],
 )

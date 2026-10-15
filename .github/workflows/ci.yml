@@ -124,3 +124,53 @@ jobs:
           name: external-compose-evidence
           path: build/bazel-native
           if-no-files-found: error
+  external-android:
+    name: External Android consumer
+    runs-on: ubuntu-latest
+    # A cold cache builds rules_android's own tools (protobuf included).
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: yschimke/compose-ai-contrib
+          # main: bazel-apk's kt_android_library, whose Greeting reads Android resources.
+          ref: bfa7f5b266d039a5f094b7f7c2a8024916e68ba1
+          path: contrib
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: yschimke/compose-ai-tools
+          # Must carry the producer's artifacts schema 2 and `bundle render`'s Android flags
+          # (compose-ai-tools agent/bazel-android-render): bump to the main commit that lands it.
+          ref: 72ac1b587bf06312a4bd85147fac4511da8a0d04
+          path: tools
+          persist-credentials: false
+      - uses: ./tools/.github/actions/setup
+      - name: Install the pinned Android SDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+      - uses: bazel-contrib/setup-bazel@8cb04a772ab4c1eb984e9c1b493a182e96c5e425 # v0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: true
+          repository-cache: true
+      - name: Build the current CLI and producer
+        working-directory: tools
+        run: ./gradlew :bundle-producer:installDist :cli:installDist --stacktrace
+      # compose_preview over a rules_android library, with a render toolchain declaring the Android
+      # daemon and android-all: the render is the cacheable action, byte-identical when executed
+      # twice from empty caches, and served from the cache after `bazel clean`.
+      - name: Render an Android library as a cacheable Bazel action
+        run: >-
+          python3 tests/integration.py --android-fixture contrib/bazel-apk
+          --android-check contrib/.github/scripts/check-android-render.py
+          --cli-dist tools/cli/build/install/compose-preview
+          --producer-dist tools/bundle/producer/build/install/compose-preview-producer
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: external-android-evidence
+          path: build/bazel-native/android
+          if-no-files-found: warn
