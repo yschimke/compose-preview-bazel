@@ -67,8 +67,9 @@ def render_inputs(info, stage, maven_jars = None):
       stage: execroot-relative directory this action alone stages into (next to its output), so
         concurrent renders under a shared execroot never touch each other's inputs.
       maven_jars: File listing the bundle's runtime jars, one execroot path per line, or None.
-        Those under a rules_jvm_external `v1/<scheme>/<host>/` tree are linked into a local Maven
-        repository, so the bundle's Maven coordinates resolve without a fetch.
+        Each is linked into a local Maven repository under every trailing
+        `<group>/<artifact>/<version>/<file>` its path could be, so the bundle's Maven coordinates
+        resolve without a fetch whatever prefix rules_jvm_external stores them under.
 
     Returns:
       (inputs depset, setup shell lines). The lines run in the action's working directory, lay
@@ -91,23 +92,23 @@ def render_inputs(info, stage, maven_jars = None):
         for f in files.to_list():
             lines.append('ln -sf "$PWD/%s" "$stage/%s/%s"' % (f.path, name, f.basename))
     if maven_jars:
-        # rules_jvm_external keeps each jar at v1/<scheme>/<host>/<repository path>/<group>/
-        # <artifact>/<version>/<file>. The repository path is unknown, so link every suffix that
-        # still holds a group, artifact, version and file; the resolver finds the one that fits.
-        # Its jvm_import stamps each jar as processed_<file> beside the original name's place.
+        # rules_jvm_external keeps each jar at <prefix>/<group>/<artifact>/<version>/<file>; the
+        # prefix differs by version (`v1/<scheme>/<host>/` before 6.0, the repository's own
+        # directory since), and jvm_import stamps the file as processed_<file>. The prefix is
+        # unknown, so link every suffix that still holds a group, artifact, version and file; the
+        # resolver finds the one that fits and ignores the rest.
         lines += [
             'mkdir -p "$stage/m2"',
             "while IFS= read -r jar; do",
-            '  case "$jar" in */v1/*/*) ;; *) continue ;; esac',
-            '  rest="${jar#*/v1/*/}"; rest="${rest#*/}"',
-            '  base="${rest##*/}"; base="${base#processed_}"; dir="${rest%/*}"',
+            '  case "$jar" in */*/*/*/*) ;; *) continue ;; esac',
+            '  base="${jar##*/}"; base="${base#processed_}"; dir="${jar%/*}"',
             "  while :; do",
             '    mkdir -p "$stage/m2/$dir"',
             '    ln -sf "$PWD/$jar" "$stage/m2/$dir/$base"',
             '    case "$dir" in */*/*/*) dir="${dir#*/}" ;; *) break ;; esac',
             "  done",
             'done < "%s"' % maven_jars.path,
-            'echo "compose_preview: staged $(find "$stage/m2" -name "*.jar" | wc -l) Maven jar links" >&2',
+            'echo "compose_preview: linked $(wc -l < "%s") runtime jars into $stage/m2, e.g. $(head -n 1 "%s")" >&2' % (maven_jars.path, maven_jars.path),
         ]
     options = [
         "-Dcomposeai.network=off",
