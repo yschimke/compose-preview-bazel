@@ -19,8 +19,13 @@ class RenderToolchainTest(unittest.TestCase):
     def test_staged_render_turns_the_network_off(self):
         source = (ROOT / "render_toolchain.bzl").read_text()
         for setting in ("COMPOSE_PREVIEW_NO_NETWORK=1", "COMPOSE_PREVIEW_OFFLINE=1",
-                        "-Dcomposeai.network=off", "XDG_CACHE_HOME", "-Dmaven.repo.local"):
+                        "-Dcomposeai.network=off", "XDG_CACHE_HOME", "-Dmaven.repo.local",
+                        "-Duser.timezone=UTC", "export TZ=UTC"):
             self.assertIn(setting, source)
+
+    def test_each_render_stages_into_its_own_directory(self):
+        self.assertNotIn("_compose_preview_render", (ROOT / "render_toolchain.bzl").read_text())
+        self.assertIn('output.path + ".stage"', (ROOT / "defs.bzl").read_text())
 
     def test_toolchain_type_is_declared(self):
         self.assertIn('toolchain_type(name = "render_toolchain_type")', (ROOT / "BUILD.bazel").read_text())

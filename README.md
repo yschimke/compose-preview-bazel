@@ -178,14 +178,13 @@ variables into actions. Preparation is cacheable either way.
 ### Cacheable rendering: a render toolchain
 
 Register a `compose_preview_render_toolchain` and the render declares every input
-instead: the CLI's daemon and renderer jars, the host's Skiko native, fonts,
-`android-all-instrumented` jars and `android.jar` for Android, and the Java runtime.
-The action stages them as the CLI's own sidecar and cache directories, links the
-bundle's Maven dependencies (already inputs, from rules_jvm_external) into a local
-Maven repository, and runs the CLI with the network off
-(`COMPOSE_PREVIEW_NO_NETWORK`, plus `COMPOSE_PREVIEW_OFFLINE` for CLIs that predate
-it) and a strict environment. It drops `local`/`no-cache`/`no-remote`, so renders
-are cached and can run remotely.
+instead: the CLI's daemon and renderer jars, the host's Skiko native, fonts and the
+Java runtime. The action stages them as the CLI's own sidecar and cache directories
+in a directory of its own, links the bundle's Maven dependencies (already inputs,
+from rules_jvm_external) into a local Maven repository, and runs the CLI with the
+network off (`COMPOSE_PREVIEW_NO_NETWORK`, plus `COMPOSE_PREVIEW_OFFLINE` for CLIs
+that predate it), a strict environment and a pinned locale, timezone and encoding.
+It drops `local`/`no-cache`/`no-remote`, so renders are cached and can run remotely.
 
 ```starlark
 load("@rules_compose_preview//:render_toolchain.bzl", "compose_preview_render_toolchain")
@@ -196,7 +195,6 @@ compose_preview_render_toolchain(
     renderer = ["@compose_preview_sidecars//:lib-renderer"],
     skiko = ["@skiko_awt_runtime_linux_x64//file"],
     fonts = glob(["fonts/**"]),
-    # Android: android_daemon, android_renderer, robolectric_deps, android_jar, android_api.
 )
 
 toolchain(
@@ -210,12 +208,13 @@ Then `register_toolchains("//:render_toolchain")` in `MODULE.bazel`, or
 `--extra_toolchains=//:render_toolchain`. Point each attribute at the released
 artifacts the CLI would otherwise download, pinned by checksum (`http_file`,
 `http_archive`, `maven_install`) or vendored; `compose-preview provision` fetches
-them once into a directory you can import. Robolectric and the
-`android-all-instrumented` jars must come from the Robolectric build the Android
-daemon was built against: jars instrumented by another Robolectric break the
-sandbox without failing loudly. The external-consumer CI job registers a toolchain
-from the files a CLI render provisioned, checks the image matches the CLI's
-byte-for-byte, and checks a rebuild after `bazel clean` is served from the cache.
+them once into a directory you can import. `compose_preview` renders Desktop
+targets; Android targets render through the CLI against the Android aspect's
+metadata, offline through the CLI's own pre-provisioned directories
+(`COMPOSE_PREVIEW_ROBOLECTRIC_DEPS_DIR`, compose-ai-tools' `docs/OFFLINE.md`). The
+external-consumer CI job registers a toolchain from the files a CLI render
+provisioned, checks the image matches the CLI's byte-for-byte, and checks a rebuild
+after `bazel clean` is served from the cache.
 
 Coordinates are preferred even for transformed Bazel JARs. Recovery considers
 lockfile paths/names, Maven layout, pom.properties, manifest versions and the

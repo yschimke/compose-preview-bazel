@@ -65,7 +65,7 @@ def _impl(ctx):
             jar_list = ctx.actions.args()
             jar_list.add_all(ctx.attr.module[JavaInfo].transitive_runtime_jars)
             ctx.actions.write(jars, jar_list)
-            declared, setup = render_inputs(toolchain.compose_preview_render, jars)
+            declared, setup = render_inputs(toolchain.compose_preview_render, output.path + ".stage", jars)
             ctx.actions.run_shell(
                 command = "\n".join(["set -eu"] + setup + ['exec "$@" >&2']),
                 tools = [ctx.attr.cli[DefaultInfo].files_to_run],
