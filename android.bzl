@@ -88,6 +88,11 @@ def _own_jars(target, ctx):
     return depset(direct, transitive = exported)
 
 def _compile_sdk(android_jar):
+    # A heuristic, like _aapt2_binary below: both read the SDK's directory layout, which no
+    # provider states. A missing level is allowed; the CLI then reads it from the SDK platform
+    # or android.jar itself (compose-ai-tools' docs/BAZEL.md). _aapt2_binary falls back to the
+    # toolchain's own aapt2 when the layout names no build-tools directory.
+    #
     # Any `android-<level>` segment of the jar's path (.../platforms/android-36/android.jar); null
     # when the SDK layout names none, which the schema allows.
     path = android_jar.path
