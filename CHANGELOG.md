@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.13](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.12...v0.1.0-rc.13) (2026-10-16)
+
+
+### Bug Fixes
+
+* **link:** scratch beside the output and batched javac for large closures ([#28](https://github.com/yschimke/compose-preview-bazel/issues/28)) ([c28c6b7](https://github.com/yschimke/compose-preview-bazel/commit/c28c6b7d71433f7f25e139e0c1c9ae2b37a827e3))
+
 ## [0.1.0-rc.12](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.11...v0.1.0-rc.12) (2026-10-16)
 
 
