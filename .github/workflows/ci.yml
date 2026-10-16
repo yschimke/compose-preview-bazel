@@ -136,9 +136,9 @@ jobs:
       matrix:
         include:
           - sdk: 36
-            platform: platforms;android-36
+            platform: android-36
           - sdk: 37
-            platform: platforms;android-37.0
+            platform: android-37.0
     # A cold cache builds rules_android's own tools (protobuf included).
     timeout-minutes: 60
     steps:
@@ -164,7 +164,7 @@ jobs:
       - name: Install the pinned Android SDK
         env:
           PLATFORM: ${{ matrix.platform }}
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$PLATFORM" "build-tools;36.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;$PLATFORM" "build-tools;36.0.0"'
       - uses: bazel-contrib/setup-bazel@8cb04a772ab4c1eb984e9c1b493a182e96c5e425 # v0.19.0
         with:
           bazelisk-cache: true
@@ -182,7 +182,7 @@ jobs:
           --android-check contrib/.github/scripts/check-android-render.py
           --cli-dist tools/cli/build/install/compose-preview
           --producer-dist tools/bundle/producer/build/install/compose-preview-producer
-          --android-sdk ${{ matrix.sdk }}
+          --android-sdk ${{ matrix.sdk }} --android-platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
