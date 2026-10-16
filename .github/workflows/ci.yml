@@ -104,8 +104,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: yschimke/compose-ai-tools
-          # main with compose-ai-tools#6027 (`--local-jars`) #6028 (provisioned-SDK clamp) and #6030 (renderer-first Compose).
-          ref: fef3c4333c7c3e7ed8e9e79acdae05e335e8162f
+          # main with compose-ai-tools#6027 (`--local-jars`) #6028 (provisioned-SDK clamp), #6030 (renderer-first Compose) and #6037 (AAR coordinates).
+          ref: 8c90c5d452ddf229291fa13b3f91e3072bf0f1b6
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
@@ -145,8 +145,8 @@ jobs:
         with:
           repository: yschimke/compose-ai-tools
           # main with compose-ai-tools#6023 (the producer's artifacts schema 2, `bundle render`'s
-          # Android flags), #6027 (`--local-jars`) #6028 (provisioned-SDK clamp) and #6030 (renderer-first Compose).
-          ref: fef3c4333c7c3e7ed8e9e79acdae05e335e8162f
+          # Android flags), #6027 (`--local-jars`) #6028 (provisioned-SDK clamp), #6030 (renderer-first Compose) and #6037 (AAR coordinates).
+          ref: 8c90c5d452ddf229291fa13b3f91e3072bf0f1b6
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup

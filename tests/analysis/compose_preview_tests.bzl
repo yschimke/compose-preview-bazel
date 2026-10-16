@@ -197,6 +197,54 @@ def _desktop_render_ignores_android_inputs_impl(env, target):
     inputs = [f.short_path for f in action.inputs.to_list()]
     env.expect.that_collection(inputs).not_contains_predicate(matching.str_endswith("android/0000-daemon.jar"))
 
+def _launcher(env, target):
+    writes = [a for a in target.actions if a.mnemonic == "FileWrite" and a.outputs.to_list()[0].basename.endswith(".sh")]
+    env.expect.that_int(len(writes)).equals(1)
+    return writes[0]
+
+def _test_android_launcher_passes_render_flags(name):
+    _android_test(name, _android_launcher_passes_render_flags_impl, [_ANDROID_RENDER], app_compose = "daemon")
+
+def _android_launcher_passes_render_flags_impl(env, target):
+    # `bazel run` renders with the flags the build action uses, android.jar from the runfiles.
+    content = env.expect.that_str(_launcher(env, target).content)
+    content.contains("--android-jar \"$(resolve '")
+    content.contains("android-36/android.jar')\"")
+    content.contains("--android-sdk '36'")
+    content.contains("--clock-packages 'com.example.ui.'")
+    content.contains("--app-compose 'daemon'")
+    runfiles = [f.short_path for f in target[DefaultInfo].default_runfiles.files.to_list()]
+    env.expect.that_collection(runfiles).contains_predicate(matching.str_endswith("android-36/android.jar"))
+    env.expect.that_collection(_render_action(env, target).argv).contains_at_least(["--app-compose", "daemon"])
+
+def _test_android_app_compose_defaults_to_the_cli(name):
+    _android_test(name, _android_app_compose_defaults_to_the_cli_impl, [_ANDROID_RENDER])
+
+def _android_app_compose_defaults_to_the_cli_impl(env, target):
+    env.expect.that_collection(_render_action(env, target).argv).not_contains("--app-compose")
+    env.expect.that_bool("--app-compose" in _launcher(env, target).content).equals(False)
+
+def _test_app_compose_is_android_only(name):
+    _preview(name = name + "_subject", cli = ":cli", outputs = ["png"], app_compose = "app")
+    analysis_test(
+        name = name,
+        impl = _app_compose_is_android_only_impl,
+        target = name + "_subject",
+        expect_failure = True,
+    )
+
+def _app_compose_is_android_only_impl(env, target):
+    _expect_failure(env, target, "app_compose applies to Android modules only")
+
+def _test_desktop_launcher_passes_no_render_flags(name):
+    _preview(name = name + "_subject", cli = ":cli", outputs = ["png"])
+    analysis_test(name = name, impl = _desktop_launcher_passes_no_render_flags_impl, target = name + "_subject")
+
+def _desktop_launcher_passes_no_render_flags_impl(env, target):
+    content = _launcher(env, target).content
+    env.expect.that_str(content).contains("render_flags=()")
+    env.expect.that_bool("--android-jar" in content).equals(False)
+
 def compose_preview_test_suite(name):
     test_suite(
         name = name,
@@ -215,5 +263,9 @@ def compose_preview_test_suite(name):
             _test_android_app_clock_packages_override_the_package,
             _test_android_bundle_carries_linked_resources,
             _test_desktop_render_ignores_android_inputs,
+            _test_android_launcher_passes_render_flags,
+            _test_android_app_compose_defaults_to_the_cli,
+            _test_app_compose_is_android_only,
+            _test_desktop_launcher_passes_no_render_flags,
         ],
     )
