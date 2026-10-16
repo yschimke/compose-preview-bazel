@@ -78,12 +78,18 @@ def _android_metadata(ctx, info):
     ))
     return manifest, files
 
+# Pinned by default alongside the target's package: Wear Compose's TimeText reads the clock inside
+# androidx.wear.compose, never in the app's package. The CLI's bazel.json default matches.
+_WEAR_COMPOSE_CLOCK_PACKAGE = "androidx.wear.compose."
+
 def _clock_packages(ctx, info):
     # `pinAppClock`: the target's own classes read the pinned preview clock, as a Gradle module's
     # namespace does. The CLI drops any prefix it must not instrument (the JDK, the framework).
     if not ctx.attr.pin_app_clock:
         return []
-    packages = ctx.attr.app_clock_packages or ([info.package + "."] if info.package else [])
+    packages = ctx.attr.app_clock_packages or (
+        ([info.package + "."] if info.package else []) + [_WEAR_COMPOSE_CLOCK_PACKAGE]
+    )
     return [p for p in packages if p.strip().strip(".")]
 
 def _shell_quote(text):
@@ -311,7 +317,7 @@ compose_preview = rule(
             doc = "Android: the target's own System.currentTimeMillis() reads the pinned preview clock, as Gradle's composePreview.pinAppClock. Part of the render action key.",
         ),
         "app_clock_packages": attr.string_list(
-            doc = "Android: class-name prefixes to pin instead of the target's resource package (with a trailing '.').",
+            doc = "Android: class-name prefixes to pin instead of the default, the target's resource package (with a trailing '.') and androidx.wear.compose.",
         ),
         "app_compose": attr.string(
             values = ["", "auto", "app", "daemon"],
