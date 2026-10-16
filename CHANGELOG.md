@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.12](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.11...v0.1.0-rc.12) (2026-10-16)
+
+
+### Bug Fixes
+
+* pin Wear Compose's clock by default ([#25](https://github.com/yschimke/compose-preview-bazel/issues/25)) ([50f5306](https://github.com/yschimke/compose-preview-bazel/commit/50f53065251a7f7d3662931c44410370caf831fe))
+
 ## [0.1.0-rc.11](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.10...v0.1.0-rc.11) (2026-10-16)
 
 
