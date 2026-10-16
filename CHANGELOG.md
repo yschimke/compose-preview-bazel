@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.11](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.10...v0.1.0-rc.11) (2026-10-16)
+
+
+### Features
+
+* pass the Android render flags from bazel run and add compose_preview app_compose ([#22](https://github.com/yschimke/compose-preview-bazel/issues/22)) ([f1f1d5e](https://github.com/yschimke/compose-preview-bazel/commit/f1f1d5eef61b698292c49f3ab608f46d8c51ff71))
+
 ## [0.1.0-rc.10](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.9...v0.1.0-rc.10) (2026-10-15)
 
 
