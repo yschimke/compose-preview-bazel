@@ -76,7 +76,10 @@ class LinkTest(unittest.TestCase):
             )
             with zipfile.ZipFile(rjar) as jar:
                 classes = {n for n in jar.namelist() if n.endswith("/R.class")}
+                header = jar.read("pkg0/R.class")[:8]
             self.assertEqual(PACKAGES, len(classes))
+            # Class file major version 55: loadable on Java 11 whatever JDK compiled it.
+            self.assertEqual(55, int.from_bytes(header[6:8], "big"))
             self.assertEqual({"resources.ap_", "r-final.jar", "resources.ap_.work"}, {p.name for p in out.iterdir()})
             self.assertEqual("caller-owned", (mine / "keep").read_text())
 
