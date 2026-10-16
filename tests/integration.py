@@ -43,6 +43,21 @@ def copy_evidence(source, destination):
     shutil.copyfile(source, destination)
 
 
+def android_sdk_view(android_home, platform, view):
+    """A directory that is [android_home] with only the named platform directory (`android-36`,
+    `android-37.0`), for `--repo_env=ANDROID_HOME`. Exactly that name: a preinstalled minor
+    platform (`android-36.1`) would link differently while reporting the same integer level."""
+    source = android_home / "platforms" / platform
+    assert source.is_dir(), f"No {platform} platform under {android_home}/platforms"
+    view.mkdir(parents=True)
+    for entry in android_home.iterdir():
+        if entry.name != "platforms":
+            (view / entry.name).symlink_to(entry)
+    (view / "platforms").mkdir()
+    (view / "platforms" / platform).symlink_to(source)
+    return view
+
+
 def execution_log(path):
     """The SpawnExec entries of an --execution_log_json_file (concatenated JSON objects)."""
     text, decoder, entries, index = path.read_text(), json.JSONDecoder(), [], 0
@@ -400,6 +415,12 @@ def check_android(args):
             build = 'load("@rules_compose_preview//:defs.bzl", "compose_preview")\n' + (consumer / "BUILD.bazel").read_text()
             (consumer / "BUILD.bazel").write_text(build + ANDROID_PREVIEW % library)
 
+            # An SDK holding only the requested platform: rules_android links against the newest
+            # platform it finds, so the runner's preinstalled ones would otherwise pick the level.
+            android_home = Path(os.environ.get("ANDROID_HOME") or os.environ["ANDROID_SDK_ROOT"])
+            sdk_view = android_sdk_view(android_home, args.android_platform or f"android-{args.android_sdk}",
+                                        temporary / "android-sdk")
+
             # The Android render's inputs, as `provision` fetches them for an offline machine.
             environment = dict(os.environ, XDG_CACHE_HOME=str(temporary / "xdg"))
             report = json.loads(invoke([str(args.cli_dist.resolve() / "bin/compose-preview"), "provision", "--android",
@@ -421,7 +442,7 @@ def check_android(args):
                 'load("@rules_compose_preview//:render_toolchain.bzl", "compose_preview_render_toolchain")\n'
                 "compose_preview_render_toolchain(\n    name = \"inputs\",\n" +
                 "".join(f"    {kind} = {json.dumps(files)},\n" for kind, files in labels.items()) +
-                # SDK 36 renders need Java 21 (on 17 the CLI clamps to 35).
+                # SDK 36 and newer renders need Java 21 (on 17 the CLI clamps to 35).
                 '    java_runtime = "@rules_java//toolchains:remotejdk_21",\n)\n'
                 "toolchain(\n    name = \"toolchain\",\n    toolchain = \":inputs\",\n"
                 "    toolchain_type = \"@rules_compose_preview//:render_toolchain_type\",\n)\n")
@@ -430,14 +451,18 @@ def check_android(args):
                 log = evidence / f"{name}-actions.json"
                 flags = ["--extra_toolchains=//render:toolchain", "--incompatible_strict_action_env",
                          f"--disk_cache={disk_cache}", "--output_groups=png,rendered_bundle", "--jobs=4"]
-                if os.environ.get("ANDROID_HOME"):
-                    flags.append(f"--repo_env=ANDROID_HOME={os.environ['ANDROID_HOME']}")
+                flags.append(f"--repo_env=ANDROID_HOME={sdk_view}")
                 invoke(bazel + ["build", "//:android-preview", *flags, f"--execution_log_json_file={log}"],
                        consumer, evidence / f"{name}.log")
                 renders = execution_log(log)
                 ran = [e for e in renders if e.get("mnemonic") in ("ComposePreviewRender", "ComposePreviewLocalRender")]
                 assert ran and all(e["mnemonic"] == "ComposePreviewRender" for e in ran), \
                     "An Android render with the Android toolchain inputs must be the cacheable action"
+                for entry in ran:
+                    argv = entry.get("commandArgs", [])
+                    level = argv[argv.index("--android-sdk") + 1] if "--android-sdk" in argv else None
+                    assert level == str(args.android_sdk), \
+                        f"The render linked SDK {level}, not the requested {args.android_sdk}"
                 pngs = sorted((consumer / "bazel-bin/android-preview.renders").glob("*.png"))
                 assert pngs, "The Android render produced no PNG"
                 return ran, {p.name: png(p) for p in pngs}, pngs
@@ -455,8 +480,7 @@ def check_android(args):
             # the toolchain staged for the action.
             launched = temporary / "android-run"
             run = bazel + ["run", "//:android-preview", "--extra_toolchains=//render:toolchain"]
-            if os.environ.get("ANDROID_HOME"):
-                run.append(f"--repo_env=ANDROID_HOME={os.environ['ANDROID_HOME']}")
+            run.append(f"--repo_env=ANDROID_HOME={sdk_view}")
             invoke(run + ["--", "--output", str(launched)], consumer, evidence / "android-run.log", env=environment)
             launched_greeting = next(launched.glob("*Greeting*.png"), None)
             assert launched_greeting, "`bazel run` produced no Greeting PNG"
@@ -496,6 +520,8 @@ if __name__ == "__main__":
     parser.add_argument("--fixture", type=Path, help="compose-ai-contrib's bazel-desktop")
     parser.add_argument("--android-fixture", type=Path, help="compose-ai-contrib's bazel-apk")
     parser.add_argument("--android-sdk", type=int, default=36)
+    parser.add_argument("--android-platform",
+                        help="the SDK platform directory to link against (default android-<android-sdk>)")
     parser.add_argument("--android-check", type=Path, help="a script that checks the Android render's pixels")
     parser.add_argument("--cli-dist", type=Path, required=True)
     parser.add_argument("--producer-dist", type=Path, required=True)

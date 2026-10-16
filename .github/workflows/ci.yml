@@ -126,8 +126,19 @@ jobs:
           path: build/bazel-native
           if-no-files-found: error
   external-android:
-    name: External Android consumer
+    name: External Android consumer (SDK ${{ matrix.sdk }})
     runs-on: ubuntu-latest
+    # Each level installs its own platform package and renders on its own android-all; the test
+    # hands rules_android an SDK holding only that platform, so the runner's preinstalled ones
+    # cannot change which level is linked and rendered.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sdk: 36
+            platform: android-36
+          - sdk: 37
+            platform: android-37.0
     # A cold cache builds rules_android's own tools (protobuf included).
     timeout-minutes: 60
     steps:
@@ -151,7 +162,9 @@ jobs:
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
       - name: Install the pinned Android SDK
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;$PLATFORM" "build-tools;36.0.0"'
       - uses: bazel-contrib/setup-bazel@8cb04a772ab4c1eb984e9c1b493a182e96c5e425 # v0.19.0
         with:
           bazelisk-cache: true
@@ -169,9 +182,10 @@ jobs:
           --android-check contrib/.github/scripts/check-android-render.py
           --cli-dist tools/cli/build/install/compose-preview
           --producer-dist tools/bundle/producer/build/install/compose-preview-producer
+          --android-sdk ${{ matrix.sdk }} --android-platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: external-android-evidence
+          name: external-android-evidence-sdk${{ matrix.sdk }}
           path: build/bazel-native/android
           if-no-files-found: warn
