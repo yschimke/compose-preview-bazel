@@ -384,12 +384,14 @@ python3 tests/integration.py \
   --producer-dist /path/to/tools/bundle/producer/build/install/compose-preview-producer
 ```
 
-The Android run (CI's External Android consumer job) renders bazel-apk's
+The Android run (CI's External Android consumer job, once per SDK level: 36 and
+37, chosen with `--android-sdk`) renders bazel-apk's
 `kt_android_library` through `compose_preview` with a render toolchain built from
 what `compose-preview provision --android` fetched, and checks that the render is
 the cacheable action, that executing it twice from empty caches gives the same
 bytes, that a rebuild after `bazel clean` is served from the cache, and that
-`bazel run` renders the same preview through the launcher.
+`bazel run` renders the same preview through the launcher. It hands rules_android
+an SDK holding only that level's platform, and checks the render linked it.
 
 Prepared bundles use sorted archive entries, fixed timezone-independent ZIP timestamps,
 UTF-8/canonical JSON and portable source paths. Classpath order is preserved.
