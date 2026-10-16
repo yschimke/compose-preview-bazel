@@ -118,8 +118,9 @@ How it fits together, reusing what already exists rather than adding a mode:
   input, so the host SDK is never read) and its app clock (`--clock-packages`).
 - **App clock.** `pin_app_clock` (default on, as Gradle's
   `composePreview.pinAppClock` and `bazel.json`'s `pinAppClock`) pins
-  `System.currentTimeMillis()` for the target's own package (`<package>.`), or
-  for `app_clock_packages` when set. The bundle format is untouched: the list is
+  `System.currentTimeMillis()` for the target's own package (`<package>.`) and
+  `androidx.wear.compose.` (where Wear's `TimeText` reads the clock), or for
+  `app_clock_packages` when set. The bundle format is untouched: the list is
   a render flag, part of the render action's key.
 - **Whose Compose runs.** `app_compose` is `bundle render --app-compose`: unset
   or `auto` runs the app's own Compose only when it is newer than the

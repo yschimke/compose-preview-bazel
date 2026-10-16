@@ -119,7 +119,7 @@ def _android_render_with_android_toolchain_is_cacheable_impl(env, target):
     mnemonics.not_contains("ComposePreviewLocalRender")
     action = _render_action(env, target)
     argv = env.expect.that_collection(action.argv)
-    argv.contains_at_least(["--android-sdk", "36", "--clock-packages", "com.example.ui."])
+    argv.contains_at_least(["--android-sdk", "36", "--clock-packages", "com.example.ui.,androidx.wear.compose."])
     argv.contains_predicate(matching.str_endswith("android-36/android.jar"))
 
     # The recorded coordinates resolve from the module's own runtime jars, by content.
@@ -211,7 +211,7 @@ def _android_launcher_passes_render_flags_impl(env, target):
     content.contains("--android-jar \"$(resolve '")
     content.contains("android-36/android.jar')\"")
     content.contains("--android-sdk '36'")
-    content.contains("--clock-packages 'com.example.ui.'")
+    content.contains("--clock-packages 'com.example.ui.,androidx.wear.compose.'")
     content.contains("--app-compose 'daemon'")
     runfiles = [f.short_path for f in target[DefaultInfo].default_runfiles.files.to_list()]
     env.expect.that_collection(runfiles).contains_predicate(matching.str_endswith("android-36/android.jar"))
