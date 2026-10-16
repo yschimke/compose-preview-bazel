@@ -467,6 +467,10 @@ def check_android(args):
             with zipfile.ZipFile(consumer / "bazel-bin/android-preview.rendered-bundle.png") as baked:
                 manifest = json.loads(baked.read("bundle.json"))
                 assert manifest["backend"] == "android", manifest["backend"]
+                # The fixture's androidx AARs travel as `aar` coordinates, not embedded jars.
+                aars = [e for e in manifest["classpath"] if e.get("kind") == "maven" and e.get("type") == "aar"]
+                assert any(e["group"].startswith("androidx.") for e in aars), \
+                    f"No androidx AAR coordinate in the bundle: {manifest['classpath']}"
                 assert "android/resources.ap_" in baked.namelist()
                 assert any(n.startswith("previews/") and n.endswith(".png") for n in baked.namelist())
             # Determinism: a second execution, from an empty cache, gives the same bytes.
