@@ -121,6 +121,18 @@ How it fits together, reusing what already exists rather than adding a mode:
   `System.currentTimeMillis()` for the target's own package (`<package>.`), or
   for `app_clock_packages` when set. The bundle format is untouched: the list is
   a render flag, part of the render action's key.
+- **Whose Compose runs.** `app_compose` is `bundle render --app-compose`: unset
+  or `auto` runs the app's own Compose only when it is newer than the
+  renderer's, and `app` or `daemon` forces one. Android modules only; part of the
+  render action's key. Needs compose-ai-tools 2.64.1 or newer.
+- **`bazel run`.** The launcher renders with the same flags as the action, with
+  `android.jar` taken from its runfiles; the CLI provisions the daemon and
+  android-all into its own cache, as for any render outside Bazel.
+- **Dependencies.** AAR dependencies from `maven_install` travel in the bundle as
+  `aar` coordinates (identified by their `aar_import` target), not as embedded
+  jars; with the render toolchain's `--local-jars` they still resolve to the
+  build's own jars. Needs a producer from compose-ai-tools 2.64.3 or newer;
+  older ones embed them.
 - **Caching.** Cacheable only when the registered render toolchain declares both
   Android inputs, `android_daemon` and `android_all` (below). Without them, or
   without a toolchain, the render is local, uncached and non-remote, as a Desktop
@@ -376,7 +388,8 @@ The Android run (CI's External Android consumer job) renders bazel-apk's
 `kt_android_library` through `compose_preview` with a render toolchain built from
 what `compose-preview provision --android` fetched, and checks that the render is
 the cacheable action, that executing it twice from empty caches gives the same
-bytes, and that a rebuild after `bazel clean` is served from the cache.
+bytes, that a rebuild after `bazel clean` is served from the cache, and that
+`bazel run` renders the same preview through the launcher.
 
 Prepared bundles use sorted archive entries, fixed timezone-independent ZIP timestamps,
 UTF-8/canonical JSON and portable source paths. Classpath order is preserved.

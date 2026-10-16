@@ -450,6 +450,20 @@ def check_android(args):
             if args.android_check:
                 invoke(["python3", str(args.android_check.resolve()), str(evidence / "android-render.png")],
                        temporary, evidence / "android-check.log")
+            # `bazel run` replays the same bundle outside the action, with the same Android flags
+            # (android.jar from the runfiles, the SDK level, the app clock); the CLI provisions what
+            # the toolchain staged for the action.
+            launched = temporary / "android-run"
+            run = bazel + ["run", "//:android-preview", "--extra_toolchains=//render:toolchain"]
+            if os.environ.get("ANDROID_HOME"):
+                run.append(f"--repo_env=ANDROID_HOME={os.environ['ANDROID_HOME']}")
+            invoke(run + ["--", "--output", str(launched)], consumer, evidence / "android-run.log", env=environment)
+            launched_greeting = next(launched.glob("*Greeting*.png"), None)
+            assert launched_greeting, "`bazel run` produced no Greeting PNG"
+            copy_evidence(launched_greeting, evidence / "android-run.png")
+            if args.android_check:
+                invoke(["python3", str(args.android_check.resolve()), str(evidence / "android-run.png")],
+                       temporary, evidence / "android-run-check.log")
             with zipfile.ZipFile(consumer / "bazel-bin/android-preview.rendered-bundle.png") as baked:
                 manifest = json.loads(baked.read("bundle.json"))
                 assert manifest["backend"] == "android", manifest["backend"]

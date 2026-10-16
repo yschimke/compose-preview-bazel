@@ -26,6 +26,7 @@ resolve() {{
 }}
 cli="$(resolve '{cli}')"
 bundle="$(resolve '{bundle}')"
+{render_flags}
 operation=render
 if [[ "${{1:-}}" == render || "${{1:-}}" == inspect || "${{1:-}}" == extract ]]; then
   operation="$1"
@@ -40,7 +41,7 @@ if [[ "$operation" == render ]]; then
       break
     fi
   done
-  exec "$cli" bundle render "$bundle" ${{extra[@]+"${{extra[@]}}"}} "$@"
+  exec "$cli" bundle render "$bundle" ${{render_flags[@]+"${{render_flags[@]}}"}} ${{extra[@]+"${{extra[@]}}"}} "$@"
 fi
 exec "$cli" bundle "$operation" "$bundle" "$@"
 """
@@ -84,6 +85,38 @@ def _clock_packages(ctx, info):
         return []
     packages = ctx.attr.app_clock_packages or ([info.package + "."] if info.package else [])
     return [p for p in packages if p.strip().strip(".")]
+
+def _shell_quote(text):
+    return "'" + text.replace("'", "'\\''") + "'"
+
+def _android_render_flags(ctx, android):
+    """The flags an Android render passes after the bundle, as (flag, value) pairs.
+
+    The SDK the target links against, its android.jar, its app clock and whose Compose runs; each
+    explicit, so a render reads nothing of the host's SDK. The android.jar value is its File.
+    """
+    if not android:
+        return []
+    flags = [("--android-jar", android.android_jar)]
+    if android.compile_sdk:
+        flags.append(("--android-sdk", str(android.compile_sdk)))
+    clock = _clock_packages(ctx, android)
+    if clock:
+        flags.append(("--clock-packages", ",".join(clock)))
+    if ctx.attr.app_compose:
+        flags.append(("--app-compose", ctx.attr.app_compose))
+    return flags
+
+def _launcher_render_flags(ctx, flags):
+    # The same flags for `bazel run`, with android.jar found through the runfiles.
+    words = []
+    for flag, value in flags:
+        words.append(flag)
+        if type(value) == "File":
+            words.append("\"$(resolve '%s')\"" % rlocation_path(ctx, value))
+        else:
+            words.append(_shell_quote(value))
+    return "render_flags=(%s)" % " ".join(words)
 
 def _metadata(ctx):
     if ComposePreviewAndroidInfo in ctx.attr.module:
@@ -137,6 +170,9 @@ def _impl(ctx):
     output = None
     rendered = None
     android = ctx.attr.module[ComposePreviewAndroidInfo] if ComposePreviewAndroidInfo in ctx.attr.module else None
+    if ctx.attr.app_compose and not android:
+        fail("app_compose applies to Android modules only")
+    render_flags = _android_render_flags(ctx, android)
     if ctx.executable.cli:
         output = ctx.actions.declare_directory(ctx.label.name + ".renders")
         render_args = ctx.actions.args()
@@ -144,16 +180,10 @@ def _impl(ctx):
         render_direct = [bundle]
         kind = "Desktop"
         if android:
-            # The SDK the target links against, its android.jar and its app clock, each passed
-            # explicitly so the render reads nothing of the host's SDK.
             kind = "Android"
-            render_args.add_all(["--android-jar", android.android_jar])
             render_direct.append(android.android_jar)
-            if android.compile_sdk:
-                render_args.add_all(["--android-sdk", str(android.compile_sdk)])
-            clock = _clock_packages(ctx, android)
-            if clock:
-                render_args.add_joined("--clock-packages", clock, join_with = ",")
+        for flag, value in render_flags:
+            render_args.add(flag, value)
         toolchain = ctx.toolchains[RENDER_TOOLCHAIN_TYPE]
         if toolchain and android and not renders_android(toolchain.compose_preview_render):
             # A toolchain without the Android inputs cannot stage an Android render.
@@ -230,9 +260,10 @@ def _impl(ctx):
             bundle = rlocation_path(ctx, bundle),
             name = ctx.label.name,
             repo = ctx.label.repo_name,
+            render_flags = _launcher_render_flags(ctx, render_flags),
         ), is_executable = True)
         runfiles = runfiles.merge_all([
-            ctx.runfiles(files = [ctx.executable.cli]),
+            ctx.runfiles(files = [ctx.executable.cli] + ([android.android_jar] if android else [])),
             ctx.attr.cli[DefaultInfo].default_runfiles,
         ])
     else:
@@ -281,6 +312,10 @@ compose_preview = rule(
         ),
         "app_clock_packages": attr.string_list(
             doc = "Android: class-name prefixes to pin instead of the target's resource package (with a trailing '.').",
+        ),
+        "app_compose": attr.string(
+            values = ["", "auto", "app", "daemon"],
+            doc = "Android: whose Compose runs the previews, as `bundle render --app-compose`. `auto` (the CLI's default when unset) runs the app's own Compose only when it is newer than the renderer's; `app` and `daemon` force one. Part of the render action key.",
         ),
     },
     # Optional: with a registered render toolchain the render is cacheable and remote-executable.
