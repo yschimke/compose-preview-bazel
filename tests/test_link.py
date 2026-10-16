@@ -56,6 +56,10 @@ class LinkTest(unittest.TestCase):
             out = root / "out dir"
             out.mkdir()
             apk = out / "resources.ap_"
+            # A caller's own directory beside the output, named as a fixed scratch path would be.
+            mine = out / "resources.ap_.work"
+            mine.mkdir()
+            (mine / "keep").write_text("caller-owned")
             rjar = out / "r-final.jar"
             manifest = root / "AndroidManifest.xml"
             manifest.write_text("<manifest package='pkg0'/>")
@@ -73,7 +77,8 @@ class LinkTest(unittest.TestCase):
             with zipfile.ZipFile(rjar) as jar:
                 classes = {n for n in jar.namelist() if n.endswith("/R.class")}
             self.assertEqual(PACKAGES, len(classes))
-            self.assertEqual({"resources.ap_", "r-final.jar"}, {p.name for p in out.iterdir()})
+            self.assertEqual({"resources.ap_", "r-final.jar", "resources.ap_.work"}, {p.name for p in out.iterdir()})
+            self.assertEqual("caller-owned", (mine / "keep").read_text())
 
 
 if __name__ == "__main__":

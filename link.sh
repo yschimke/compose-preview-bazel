@@ -15,9 +15,8 @@ aapt2="$1"; jdk="$2"; apk="$3"; rjar="$4"; manifest="$5"; android_jar="$6"; extr
 shift 8
 # Scratch beside the output, never in /tmp: remote executors often mount a small tmpfs there, and a
 # link over a few hundred resource packages generates tens of megabytes of R sources.
-work="$apk.work"
-rm -rf "$work"
-mkdir -p "$work"
+# A unique name, so a caller's own file beside the output is never touched.
+work="$(mktemp -d "$(dirname "$apk")/.compose-preview-link.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 overlays=""
 for zip in "$@"; do overlays="$overlays -R $zip"; done
