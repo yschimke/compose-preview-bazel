@@ -104,8 +104,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: yschimke/compose-ai-tools
-          # main with compose-ai-tools#6027 (`--local-jars`) #6028 (provisioned-SDK clamp), #6030 (renderer-first Compose), #6037 (AAR coordinates) and #6041 (daemon 3.18.2: espresso 3.7.0 for API 37).
-          ref: 53c169b6c4dfddc162f49c0a2d49e3296b2a5842
+          # main with compose-ai-tools#6027 (`--local-jars`) #6028 (provisioned-SDK clamp), #6030 (renderer-first Compose), #6037 (AAR coordinates), #6041 (daemon 3.18.2: espresso 3.7.0 for API 37), #6044 (Wear clock, linked android.jar) and #6045 (daemon 3.18.3); the v2.64.4 release commit.
+          ref: e22ce7b2e785b11cc60cbf056d68019e7b763af0
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
@@ -156,8 +156,8 @@ jobs:
         with:
           repository: yschimke/compose-ai-tools
           # main with compose-ai-tools#6023 (the producer's artifacts schema 2, `bundle render`'s
-          # Android flags), #6027 (`--local-jars`) #6028 (provisioned-SDK clamp), #6030 (renderer-first Compose), #6037 (AAR coordinates) and #6041 (daemon 3.18.2: espresso 3.7.0 for API 37).
-          ref: 53c169b6c4dfddc162f49c0a2d49e3296b2a5842
+          # Android flags), #6027 (`--local-jars`) #6028 (provisioned-SDK clamp), #6030 (renderer-first Compose), #6037 (AAR coordinates), #6041 (daemon 3.18.2: espresso 3.7.0 for API 37), #6044 (Wear clock, linked android.jar) and #6045 (daemon 3.18.3); the v2.64.4 release commit.
+          ref: e22ce7b2e785b11cc60cbf056d68019e7b763af0
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
