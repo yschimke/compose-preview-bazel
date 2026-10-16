@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.10](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.9...v0.1.0-rc.10) (2026-10-15)
+
+
+### Features
+
+* render Android libraries in compose_preview as cacheable Bazel actions ([#20](https://github.com/yschimke/compose-preview-bazel/issues/20)) ([12667e5](https://github.com/yschimke/compose-preview-bazel/commit/12667e523e130f5b3a31a2f693633e6154909bf6))
+
 ## [0.1.0-rc.9](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.8...v0.1.0-rc.9) (2026-10-15)
 
 
