@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.14](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.13...v0.1.0-rc.14) (2026-10-16)
+
+
+### Bug Fixes
+
+* **link:** compile R classes for Java 11 ([#30](https://github.com/yschimke/compose-preview-bazel/issues/30)) ([4923c2a](https://github.com/yschimke/compose-preview-bazel/commit/4923c2a194eda7de7ee476881f83f08ae3ec72d6))
+
 ## [0.1.0-rc.13](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.12...v0.1.0-rc.13) (2026-10-16)
 
 
