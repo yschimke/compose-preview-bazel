@@ -83,6 +83,54 @@ class LinkTest(unittest.TestCase):
             self.assertEqual({"resources.ap_", "r-final.jar", "resources.ap_.work"}, {p.name for p in out.iterdir()})
             self.assertEqual("caller-owned", (mine / "keep").read_text())
 
+    def test_manifest_entries_stand_for_their_packages(self):
+        # rules_android keys an aar_import's R.txt under no package, so the aspect passes the
+        # AAR's manifest instead, and link.sh reads the package from it.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            aapt2 = root / "aapt2"
+            aapt2.write_text(
+                "#!/bin/sh\nset -eu\nwhile [ $# -gt 0 ]; do case \"$1\" in\n"
+                "  -o) printf apk > \"$2\"; shift 2 ;;\n"
+                "  --java) mkdir -p \"$2\"; shift 2 ;;\n"
+                "  --extra-packages) printf '%s' \"$2\" > \"$EXTRA_OUT\"; shift 2 ;;\n"
+                "  *) shift ;;\nesac; done\n"
+            )
+            aapt2.chmod(aapt2.stat().st_mode | stat.S_IXUSR)
+            manifest = root / "AndroidManifest.xml"
+            manifest.write_text('<manifest package="com.example.app"/>')
+            aar = root / "external/maven/ui_aar/AndroidManifest.xml"
+            aar.parent.mkdir(parents=True)
+            # Multi-line, with the package attribute after others, as AGP writes an AAR's.
+            aar.write_text(
+                '<?xml version="1.0" encoding="utf-8"?>\n<manifest\n'
+                '    xmlns:android="http://schemas.android.com/apk/res/android"\n'
+                '    package="androidx.compose.ui" >\n  <uses-sdk android:minSdkVersion="23" />\n'
+                '</manifest>\n'
+            )
+            own = root / "own/AndroidManifest.xml"
+            own.parent.mkdir()
+            own.write_text("<manifest package='com.example.app'/>")
+            none = root / "none/AndroidManifest.xml"
+            none.parent.mkdir()
+            none.write_text("<manifest/>")
+            out = root / "out"
+            out.mkdir()
+            extra_out = root / "extra.txt"
+            assets = root / "assets.tsv"
+            assets.write_text("")
+            extra = ":".join(
+                ["androidx.core", str(aar), str(own), str(none), "androidx.core", str(root / "missing/AndroidManifest.xml")]
+            )
+            result = subprocess.run(
+                ["sh", str(LINK), str(aapt2), str(jdk_home()), str(out / "resources.ap_"),
+                 str(out / "r-final.jar"), str(manifest), str(root / "android.jar"), extra, str(assets)],
+                check=True, env=dict(os.environ, EXTRA_OUT=str(extra_out)), capture_output=True, text=True,
+            )
+            # Deduplicated and sorted; the APK's own package and a package-less manifest add none.
+            self.assertEqual("androidx.compose.ui:androidx.core", extra_out.read_text())
+            self.assertIn("no manifest at", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
