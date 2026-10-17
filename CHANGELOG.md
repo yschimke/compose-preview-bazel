@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc.15](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.14...v0.1.0-rc.15) (2026-10-17)
+
+
+### Bug Fixes
+
+* **android:** give every aar_import's package final-ID R classes ([#32](https://github.com/yschimke/compose-preview-bazel/issues/32)) ([1f8c72e](https://github.com/yschimke/compose-preview-bazel/commit/1f8c72ed024674c5d61a58e706d9714d70c9b279))
+
 ## [0.1.0-rc.14](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.13...v0.1.0-rc.14) (2026-10-16)
 
 
