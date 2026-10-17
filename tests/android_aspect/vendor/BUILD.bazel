@@ -1,0 +1,9 @@
+load("@rules_android//rules:rules.bzl", "aar_import")
+
+# A library from Maven, as rules_jvm_external imports one. rules_android files an aar_import's
+# R.txt under no package (its package is only in the AAR's manifest), so the link reads it there.
+aar_import(
+    name = "widget",
+    aar = "widget.aar",
+    visibility = ["//visibility:public"],
+)

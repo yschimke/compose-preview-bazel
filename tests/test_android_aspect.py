@@ -61,6 +61,8 @@ class AndroidAspectTest(unittest.TestCase):
             names = set(jar.namelist())
         self.assertIn("com/example/ui/R$string.class", names)
         self.assertIn("com/example/theme/R$color.class", names)
+        # An aar_import's package, which rules_android does not report, read from its manifest.
+        self.assertIn("com/example/widget/R$string.class", names)
 
     def test_every_runtime_jar_names_its_producing_target(self):
         runtime = self.metadata["runtimeJars"]
@@ -146,13 +148,14 @@ class AndroidAspectTest(unittest.TestCase):
         with zipfile.ZipFile(out / "merged.ap_") as archive:
             names = set(archive.namelist())
             table = archive.read("resources.arsc")
-        for value in (b"greeting", b"feature_title", b"brand", b"Hello from Bazel", b"Feature from Bazel"):
+        for value in (b"greeting", b"feature_title", b"brand", b"Hello from Bazel", b"Feature from Bazel",
+                      b"Widget from an AAR"):
             self.assertIn(value, table)
         self.assertNotIn(b"Theme greeting", table)
         self.assertTrue({"assets/theme-only.txt", "assets/nested/ui-only.txt", "assets/feature-only.txt"} <= names)
         with zipfile.ZipFile(out / "r-merged.jar") as jar:
             classes = set(jar.namelist())
-        for package in ("com/example/ui", "com/example/feature", "com/example/theme"):
+        for package in ("com/example/ui", "com/example/feature", "com/example/theme", "com/example/widget"):
             self.assertIn(f"{package}/R$string.class", classes)
 
 
