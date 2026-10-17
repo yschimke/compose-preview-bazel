@@ -117,8 +117,14 @@ class LinkTest(unittest.TestCase):
             out = root / "out"
             out.mkdir()
             extra_out = root / "extra.txt"
+            # A read-only asset directory, as Bazel leaves its outputs: staging copies its mode,
+            # and the cleanup must still remove it.
+            generated = root / "generated"
+            generated.mkdir()
+            (generated / "empty_asset_generated_by_bazel~").write_text("")
+            generated.chmod(0o555)
             assets = root / "assets.tsv"
-            assets.write_text("")
+            assets.write_text(f"{generated}\twidget/assets\n")
             extra = ":".join(
                 ["androidx.core", str(aar), str(own), str(none), "androidx.core", str(root / "missing/AndroidManifest.xml")]
             )
@@ -127,6 +133,7 @@ class LinkTest(unittest.TestCase):
                  str(out / "r-final.jar"), str(manifest), str(root / "android.jar"), extra, str(assets)],
                 check=True, env=dict(os.environ, EXTRA_OUT=str(extra_out)), capture_output=True, text=True,
             )
+            generated.chmod(0o755)
             # Deduplicated and sorted; the APK's own package and a package-less manifest add none.
             self.assertEqual("androidx.compose.ui:androidx.core", extra_out.read_text())
             self.assertIn("no manifest at", result.stderr)

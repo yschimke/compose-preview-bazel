@@ -178,11 +178,15 @@ def _link(ctx, target, resources, order):
     # manifest, an action output. So every library's manifest goes to link.sh as well, which reads
     # its package, and each AAR gets R classes with this APK's IDs rather than only its own
     # non-final ones (whose IDs name nothing in this APK).
-    manifests = {}
-    for node in resources.transitive_resources_nodes.to_list() + resources.direct_resources_nodes.to_list():
-        if node.manifest and node.label != target.label:
-            manifests[node.manifest] = True
-    manifests = sorted(manifests.keys(), key = lambda f: f.path)
+    nodes = resources.direct_resources_nodes.to_list()
+    transitive_nodes = getattr(resources, "transitive_resources_nodes", None)
+    if transitive_nodes:
+        nodes = transitive_nodes.to_list() + nodes
+    library_manifests = {}
+    for node in nodes:
+        if getattr(node, "manifest", None) and node.label != target.label:
+            library_manifests[node.manifest.path] = node.manifest
+    manifests = [library_manifests[path] for path in sorted(library_manifests.keys())]
 
     args = ctx.actions.args()
     args.add(sdk.aapt2.executable)

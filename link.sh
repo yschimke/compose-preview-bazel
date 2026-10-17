@@ -18,7 +18,8 @@ shift 8
 # link over a few hundred resource packages generates tens of megabytes of R sources.
 # A unique name, so a caller's own file beside the output is never touched.
 work="$(mktemp -d "$(dirname "$apk")/.compose-preview-link.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+# Staged assets keep the read-only modes of Bazel's outputs, which rm cannot remove.
+trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 overlays=""
 for zip in "$@"; do overlays="$overlays -R $zip"; done
 # The package a manifest declares; empty when it declares none.
