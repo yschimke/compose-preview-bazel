@@ -125,17 +125,20 @@ class LinkTest(unittest.TestCase):
             generated.chmod(0o555)
             assets = root / "assets.tsv"
             assets.write_text(f"{generated}\twidget/assets\n")
+            # A root package's manifest path has no directory.
+            (root / "root.xml").write_text('<manifest package="com.example.root"/>')
             extra = ":".join(
-                ["androidx.core", str(aar), str(own), str(none), "androidx.core", str(root / "missing/AndroidManifest.xml")]
+                ["androidx.core", "root.xml", str(aar), str(own), str(none), "androidx.core", str(root / "missing/AndroidManifest.xml")]
             )
             result = subprocess.run(
                 ["sh", str(LINK), str(aapt2), str(jdk_home()), str(out / "resources.ap_"),
                  str(out / "r-final.jar"), str(manifest), str(root / "android.jar"), extra, str(assets)],
                 check=True, env=dict(os.environ, EXTRA_OUT=str(extra_out)), capture_output=True, text=True,
+                cwd=root,
             )
             generated.chmod(0o755)
             # Deduplicated and sorted; the APK's own package and a package-less manifest add none.
-            self.assertEqual("androidx.compose.ui:androidx.core", extra_out.read_text())
+            self.assertEqual("androidx.compose.ui:androidx.core:com.example.root", extra_out.read_text())
             self.assertIn("no manifest at", result.stderr)
 
 
