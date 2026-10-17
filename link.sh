@@ -7,8 +7,8 @@
 #
 # Usage: link.sh AAPT2 JAVA_HOME OUT_APK OUT_R_JAR MANIFEST ANDROID_JAR EXTRA_PACKAGES ASSETS ARCHIVE...
 #   EXTRA_PACKAGES  colon-separated R packages besides the manifest's own (may be empty); an entry
-#                   that is a path (with a slash, or ending .xml) is a library manifest, standing
-#                   for the package it declares
+#                   that is a path (with a slash, or an existing file ending .xml) is a library
+#                   manifest, standing for the package it declares
 #   ASSETS          a file of "<source>\t<path under assets/>" lines (may be empty); a source that
 #                   is a directory merges its contents at that path; later lines win
 #   ARCHIVE...      compiled resource archives in overlay order, every dependency first
@@ -34,11 +34,12 @@ set -f
 old_ifs="$IFS"
 IFS=":"
 for entry in $extra; do
+  # A bare name ending .xml is a manifest only when it is a file: com.example.xml is a package.
   case "$entry" in
     */* | *.xml)
       if [ -f "$entry" ]; then
         entry="$(manifest_package "$entry")"
-      else
+      elif [ "${entry#*/}" != "$entry" ]; then
         echo "link.sh: no manifest at $entry; skipping its R package" >&2
         entry=""
       fi
