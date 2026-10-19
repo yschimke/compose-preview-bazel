@@ -36,6 +36,10 @@ fake_android_library = rule(
         "compiled_resources": attr.label(allow_single_file = True),
         "manifest": attr.label(allow_single_file = True),
         "package": attr.string(),
+        # Read by the aspects as android_library's own: srcs for sourceFiles, exports for the
+        # libraries a wrapper (kt_android_library, a macro's umbrella target) re-exports.
+        "srcs": attr.label_list(allow_files = True),
+        "exports": attr.label_list(),
     },
     provides = [AndroidIdeInfo, JavaInfo, StarlarkAndroidResourcesInfo],
 )

@@ -54,6 +54,13 @@ class AndroidAspectTest(unittest.TestCase):
         self.assertTrue(any("ui_impl" in jar for jar in jars), jars)
         self.assertFalse(any("/theme/" in jar for jar in jars), jars)
 
+    def test_exported_sources_are_the_targets_own(self):
+        # //ui has no srcs of its own; its sources are those of the ui_impl it exports
+        # (compose-ai-tools#6112).
+        sources = self.metadata["sourceFiles"]
+        self.assertTrue(any(s.endswith("com/example/ui/Greeting.java") for s in sources), sources)
+        self.assertFalse(any("/theme/" in s for s in sources), sources)
+
     def test_final_id_r_classes_precede_every_library_r_class(self):
         runtime = self.metadata["runtimeJars"]
         self.assertEqual(self.metadata["android"]["rJar"], runtime[0])
