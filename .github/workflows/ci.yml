@@ -156,8 +156,10 @@ jobs:
         with:
           repository: yschimke/compose-ai-tools
           # main with compose-ai-tools#6023 (the producer's artifacts schema 2, `bundle render`'s
-          # Android flags), #6027 (`--local-jars`) #6028 (provisioned-SDK clamp), #6030 (renderer-first Compose), #6037 (AAR coordinates), #6041 (daemon 3.18.2: espresso 3.7.0 for API 37), #6044 (Wear clock, linked android.jar) and #6045 (daemon 3.18.3); the v2.64.4 release commit.
-          ref: e22ce7b2e785b11cc60cbf056d68019e7b763af0
+          # Android flags), #6027 (`--local-jars`) #6028 (provisioned-SDK clamp), #6030 (renderer-first Compose), #6037 (AAR coordinates), #6041 (daemon 3.18.2: espresso 3.7.0 for API 37), #6044 (Wear clock, linked android.jar), #6045 (daemon 3.18.3)
+          # and the R-class union (the app's final-ID R classes widened with the renderer's fields,
+          # which rc.15's AAR R classes need when the daemon's newer Compose runs).
+          ref: 838be12837ee474fd786b72e648b3d274ba5ca4d
           path: tools
           persist-credentials: false
       - uses: ./tools/.github/actions/setup
