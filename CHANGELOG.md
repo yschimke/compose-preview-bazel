@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.0-rc.16](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.15...v0.1.0-rc.16) (2026-10-19)
+
+
+### Bug Fixes
+
+* **android:** report an exported library's sources as the target's own ([#34](https://github.com/yschimke/compose-preview-bazel/issues/34)) ([a877e4a](https://github.com/yschimke/compose-preview-bazel/commit/a877e4a8286d299087914fe6533ceb37ac94e519))
+
+
+### Performance Improvements
+
+* **link:** compile the R classes once and clone them into each package ([#35](https://github.com/yschimke/compose-preview-bazel/issues/35)) ([4776500](https://github.com/yschimke/compose-preview-bazel/commit/4776500556f897c2d24a512a8ce76cde013dee76))
+
 ## [0.1.0-rc.15](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.14...v0.1.0-rc.15) (2026-10-17)
 
 
