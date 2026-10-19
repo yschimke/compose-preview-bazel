@@ -3,6 +3,7 @@
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:truth.bzl", "matching")
 load("@rules_testing//lib:util.bzl", "util")
+load("//:android.bzl", "ComposePreviewAndroidInfo", "compose_preview_android_module_aspect")
 load("//:defs.bzl", "compose_preview")
 
 def _preview(name, module = ":module", **kwargs):
@@ -178,6 +179,24 @@ def _android_bundle_carries_linked_resources_impl(env, target):
     for suffix in ("resources.ap_", "r-final.jar", "AndroidManifest.xml", ".artifacts.json"):
         env.expect.that_collection(inputs).contains_predicate(matching.str_endswith(suffix))
 
+def _test_android_wrapper_reports_exported_sources(name):
+    # compose-ai-tools#6112: a wrapper that only re-exports its implementation reports that
+    # library's sources as its own, as it already did its jars.
+    analysis_test(
+        name = name,
+        impl = _android_wrapper_reports_exported_sources_impl,
+        target = ":android_wrapper",
+        config_settings = {"//command_line_option:extra_toolchains": [_ANDROID_SDK]},
+        extra_target_under_test_aspects = [compose_preview_android_module_aspect],
+    )
+
+def _android_wrapper_reports_exported_sources_impl(env, target):
+    info = target[ComposePreviewAndroidInfo]
+    env.expect.that_collection([f.short_path for f in info.sources]).contains_exactly(["tests/analysis/Module.java"])
+    env.expect.that_collection([f.short_path for f in info.project_jars]).contains_predicate(
+        matching.str_endswith("libmodule.jar"),
+    )
+
 def _test_desktop_render_ignores_android_inputs(name):
     # A toolchain that also declares Android inputs leaves a Desktop render exactly as before.
     _preview(name = name + "_subject", cli = ":cli", outputs = ["png"])
@@ -262,6 +281,7 @@ def compose_preview_test_suite(name):
             _test_android_app_clock_can_be_turned_off,
             _test_android_app_clock_packages_override_the_package,
             _test_android_bundle_carries_linked_resources,
+            _test_android_wrapper_reports_exported_sources,
             _test_desktop_render_ignores_android_inputs,
             _test_android_launcher_passes_render_flags,
             _test_android_app_compose_defaults_to_the_cli,

@@ -32,10 +32,27 @@ toolchain(
 # An Android library and SDK as rules_android provides them; see android/fixtures.bzl.
 fake_android_library(
     name = "android_module",
+    srcs = ["Module.java"],
     compiled_resources = "android/resources.zip",
     java = ":module",
     manifest = "android/AndroidManifest.xml",
     package = "com.example.ui",
+)
+
+# kt_android_library's shape: a library with no sources of its own that exports the one holding
+# them, so its classes and sources are those of what it exports.
+java_library(
+    name = "module_exports",
+    exports = [":module"],
+)
+
+fake_android_library(
+    name = "android_wrapper",
+    compiled_resources = "android/resources.zip",
+    java = ":module_exports",
+    manifest = "android/AndroidManifest.xml",
+    package = "com.example.ui",
+    exports = [":android_module"],
 )
 
 sh_binary(
