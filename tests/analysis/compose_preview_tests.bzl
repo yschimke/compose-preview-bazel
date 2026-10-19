@@ -197,6 +197,23 @@ def _android_wrapper_reports_exported_sources_impl(env, target):
         matching.str_endswith("libmodule.jar"),
     )
 
+def _test_android_preview_of_a_wrapper_carries_exported_sources(name):
+    # compose_preview(module = wrapper) without `srcs`: the metadata's sources, and the prepare
+    # action's inputs, are the exported library's.
+    _preview(name = name + "_subject", module = ":android_wrapper", cli = ":cli", outputs = ["png"])
+    analysis_test(
+        name = name,
+        impl = _android_preview_of_a_wrapper_carries_exported_sources_impl,
+        target = name + "_subject",
+        config_settings = {"//command_line_option:extra_toolchains": [_ANDROID_SDK]},
+    )
+
+def _android_preview_of_a_wrapper_carries_exported_sources_impl(env, target):
+    prepare = [a for a in target.actions if a.mnemonic == "ComposePreviewPrepare"]
+    env.expect.that_int(len(prepare)).equals(1)
+    inputs = [f.short_path for f in prepare[0].inputs.to_list()]
+    env.expect.that_collection(inputs).contains("tests/analysis/Module.java")
+
 def _test_desktop_render_ignores_android_inputs(name):
     # A toolchain that also declares Android inputs leaves a Desktop render exactly as before.
     _preview(name = name + "_subject", cli = ":cli", outputs = ["png"])
@@ -282,6 +299,7 @@ def compose_preview_test_suite(name):
             _test_android_app_clock_packages_override_the_package,
             _test_android_bundle_carries_linked_resources,
             _test_android_wrapper_reports_exported_sources,
+            _test_android_preview_of_a_wrapper_carries_exported_sources,
             _test_desktop_render_ignores_android_inputs,
             _test_android_launcher_passes_render_flags,
             _test_android_app_compose_defaults_to_the_cli,

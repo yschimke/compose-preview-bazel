@@ -61,8 +61,13 @@ rlocation '{bundle}' '{repo}'
 def _android_metadata(ctx, info):
     # Artifacts schema 2, from the module aspect's link: the producer then writes a
     # backend="android" bundle carrying the linked resources.
+    #
+    # The module's own sources, an exported library's included, join any listed in `srcs`, so a
+    # wrapper module reports its sources without the rule repeating them.
+    listed = {f: True for f in ctx.files.srcs}
+    sources = ctx.files.srcs + [f for f in info.sources if f not in listed]
     files = depset(
-        ctx.files.srcs + ctx.files.maven_install + info.data_files,
+        sources + ctx.files.maven_install + info.data_files,
         transitive = [info.runtime, info.files],
     )
     manifest = ctx.actions.declare_file(ctx.label.name + ".artifacts.json")
@@ -72,7 +77,7 @@ def _android_metadata(ctx, info):
         target = ctx.attr.module.label,
         project_jars = info.project_jars,
         runtime = info.runtime,
-        source_files = ctx.files.srcs,
+        source_files = sources,
         data_files = info.data_files,
         extra = {"android": info.android},
     ))
