@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.16...v1.0.0) (2026-10-20)
+
+
+### Features
+
+* add a compose_preview_project output group with the target's own jars ([#39](https://github.com/yschimke/compose-preview-bazel/issues/39)) ([6be74ab](https://github.com/yschimke/compose-preview-bazel/commit/6be74abfbac167b70d89217df98b61e26216152c))
+
 ## [0.1.0-rc.16](https://github.com/yschimke/compose-preview-bazel/compare/v0.1.0-rc.15...v0.1.0-rc.16) (2026-10-19)
 
 
