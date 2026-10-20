@@ -61,6 +61,14 @@ copy below a repository root loads unchanged.
 Assets reached through `deps` and `exports` are packed into the APK under
 `assets/`, a target's own replacing a dependency's at the same path.
 
+Building `compose_preview_metadata` with `compose_preview_project` instead of
+`compose_preview_runtime` produces the metadata and the target's own jars only:
+no resource link and no runtime closure. The CLI builds that first and asks for
+the runtime group only for targets whose jars reference a Preview annotation
+(compose-ai-tools#6162), so a wiring library with no previews of its own costs
+its own compilation, not its whole app's runtime. `runtime.bzl`'s aspect has the
+same group.
+
 The `android.link` block records what that link was made from: the compiled
 resource archives in overlay order, the staged assets, every R package (the
 target's own first) and the aapt2, JDK and `android.jar` it used, all
