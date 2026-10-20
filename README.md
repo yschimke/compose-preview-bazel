@@ -365,15 +365,15 @@ uses `compose_preview_cli` with its launcher and distribution files.
 
 `python3 scripts/package.py --out build/release` produces a deterministic compact
 rules archive and checksum. CLI/producer binaries stay out of the rules archive.
-CI publishes these artifacts; tagged prereleases have GitHub source archives.
+CI publishes these artifacts; tagged releases have GitHub source archives.
 
 Releases go through release-please (`.github/workflows/release-please.yml`). It
 keeps a `chore(main): release X` pull request open from the conventional commits on
-`main`. Merging it tags `vX`, creates the GitHub prerelease, and attaches the
-compact archive and checksum; any later run attaches them if a release still lacks them. Versions stay on `0.1.0-rc.N` (`versioning:
-prerelease`) until the config drops `prerelease`; `MODULE.bazel` and this README
-carry the version markers it rewrites. Older prereleases used different APIs and
-required rendering to prepare bundles.
+`main`. Merging it tags `vX`, creates the GitHub release, and attaches the
+compact archive and checksum; any later run attaches them if a release still lacks them. Releases
+follow semver from 1.0.0; the `0.1.0-rc.N` prereleases before it used different
+APIs, and the oldest required rendering to prepare bundles. `MODULE.bazel` and
+this README carry the version markers it rewrites.
 
 ## Verification and project setup
 

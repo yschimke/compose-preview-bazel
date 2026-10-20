@@ -6,9 +6,7 @@
       "release-type": "simple",
       "package-name": "rules_compose_preview",
       "include-component-in-tag": false,
-      "prerelease": true,
-      "versioning": "prerelease",
-      "prerelease-type": "rc",
+      "release-as": "1.0.0",
       "extra-files": [
         "MODULE.bazel",
         "README.md"
