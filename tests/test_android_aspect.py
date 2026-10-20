@@ -21,6 +21,19 @@ def bazel():
     return shutil.which("bazelisk") or shutil.which("bazel")
 
 
+def spawns(log):
+    """The spawns of an --execution_log_json_file: concatenated JSON objects, not one per line."""
+    decoder = json.JSONDecoder()
+    found, i = [], 0
+    while True:
+        while i < len(log) and log[i].isspace():
+            i += 1
+        if i == len(log):
+            return found
+        spawn, i = decoder.raw_decode(log, i)
+        found.append(spawn)
+
+
 @unittest.skipUnless(
     os.environ.get("COMPOSE_PREVIEW_ANDROID_ASPECT_TEST") == "1" and bazel()
     and os.environ.get("ANDROID_HOME"),
@@ -29,6 +42,19 @@ def bazel():
 class AndroidAspectTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # First the target's own jars alone, as the CLI asks before deciding to link (#6162).
+        project_log = WORKSPACE / "bazel-project-exec.json"
+        subprocess.run(
+            [bazel(), "build", "//ui", f"--aspects={ASPECT}",
+             "--output_groups=compose_preview_metadata,compose_preview_project",
+             f"--execution_log_json_file={project_log}"],
+            cwd=WORKSPACE, check=True)
+        cls.project_spawns = spawns(project_log.read_text())
+        project_root = Path(subprocess.run([bazel(), "info", "execution_root"], cwd=WORKSPACE,
+                                           check=True, capture_output=True, text=True).stdout.strip())
+        project_metadata = json.loads((WORKSPACE / "bazel-bin/ui/ui.compose-preview.json").read_text())
+        cls.project_jars_built = {jar: (project_root / jar).is_file()
+                                  for jar in project_metadata["projectJars"]}
         events = WORKSPACE / "bazel-bep.json"
         subprocess.run(
             [bazel(), "build", "//ui", "//feature", f"--aspects={ASPECT}",
@@ -39,6 +65,14 @@ class AndroidAspectTest(unittest.TestCase):
                                        check=True, capture_output=True, text=True).stdout.strip())
         cls.metadata = json.loads((WORKSPACE / "bazel-bin/ui/ui.compose-preview.json").read_text())
         cls.feature = json.loads((WORKSPACE / "bazel-bin/feature/feature.compose-preview.json").read_text())
+
+    def test_project_group_builds_own_jars_without_linking(self):
+        # The metadata and the target's own jars, without the resource link or the runtime
+        # closure: what the CLI builds to look for previews first (compose-ai-tools#6162).
+        mnemonics = {spawn.get("mnemonic") for spawn in self.project_spawns}
+        self.assertNotIn("ComposePreviewAndroidLink", mnemonics)
+        self.assertTrue(self.project_jars_built)
+        self.assertTrue(all(self.project_jars_built.values()), self.project_jars_built)
 
     def test_schema_2_with_android_block(self):
         self.assertEqual(2, self.metadata["schemaVersion"])
