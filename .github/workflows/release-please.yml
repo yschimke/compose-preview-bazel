@@ -1,5 +1,5 @@
 # Keeps a "chore(main): release X" pull request up to date from the conventional commits on main,
-# and turns merging it into a published prerelease: release-please tags vX and creates the GitHub
+# and turns merging it into a published release: release-please tags vX and creates the GitHub
 # release, then `publish` attaches the compact rules archive and its checksum.
 #
 # One release-please invocation is enough here. compose-preview-contracts splits it in two because
