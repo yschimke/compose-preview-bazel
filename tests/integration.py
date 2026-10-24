@@ -319,7 +319,7 @@ def check(args):
             source_graph = json.loads(invoke(bazel + ["aquery", "//:ui-preview", "--output=jsonproto"], consumer, evidence / "source-only-actions.log"))
             assert not any(a.get("mnemonic") in ("ComposePreviewLocalRender", "ComposePreviewBake") for a in source_graph.get("actions", []))
             assert "compose_preview_cli" not in json.dumps(source_graph), "Source-only preparation must have no CLI inputs"
-            forbidden = ("daemon-client-", "daemon-core-", "daemon-bta-", "kotlin-build-tools-api-", "skiko-", "ktor-")
+            forbidden = ("daemon-client-", "daemon-core-", "daemon-bta-", "daemon-compile-", "kotlin-build-tools-api-", "skiko-", "ktor-")
             assert not any(jar.name.startswith(forbidden) for jar in (args.producer_dist / "lib").glob("*.jar"))
             evidence.joinpath("summary.json").write_text(json.dumps({"cliFirst": "passed", "bazelRun": "passed",
                                                                     "bazelBuild": "passed", "externalArchives": "passed", "sourceOnly": "passed", "preparationCache": "passed", "reproduciblePreparation": "passed",
