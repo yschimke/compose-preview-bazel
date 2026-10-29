@@ -10,7 +10,7 @@ bazel_dep(name = "rules_java", version = "9.3.0")
 
 # The Bash runfiles library the run launchers source (launcher.bzl). Bazel 9's own bazel_tools
 # depends on this version, so it upgrades no consumer there.
-bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "rules_shell", version = "0.8.0")
 
 # Only android.bzl loads rules_android. 0.6.6 is the oldest release whose
 # StarlarkAndroidResourcesInfo carries every field the Android aspect reads, so a
