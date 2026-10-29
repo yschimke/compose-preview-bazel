@@ -1,4 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>yschimke/renovate-config"]
+  "extends": ["github>yschimke/renovate-config"],
+  "description": "`platformAutomerge` hands the merge of an automerging PR to GitHub's native auto-merge, which lands it the moment the Protect Main ruleset's required checks (Bazel rules validation, Analysis tests, Android aspect and External Compose consumer, per yschimke/renovate-config repo-policy) pass, instead of on Renovate's next run. Safe because those checks build and test; native auto-merge waits only on required checks.",
+  "platformAutomerge": true
 }
