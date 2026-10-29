@@ -6,7 +6,7 @@ module(
 
 # bzl_library targets in BUILD.bazel. rules_java 9.3.0 already requires this version.
 bazel_dep(name = "bazel_skylib", version = "1.6.1")
-bazel_dep(name = "rules_java", version = "9.3.0")
+bazel_dep(name = "rules_java", version = "9.9.0")
 
 # The Bash runfiles library the run launchers source (launcher.bzl). Bazel 9's own bazel_tools
 # depends on this version, so it upgrades no consumer there.
